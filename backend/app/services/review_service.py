@@ -6,7 +6,7 @@ Phase: 4 — Resume Intelligence & Reviewed Candidate Evidence
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,26 +48,26 @@ class ReviewService:
         stmt_ver = select(ResumeVersionRecord).where(
             ResumeVersionRecord.id == version_id,
             ResumeVersionRecord.user_id == user_id
-        )
+        ).limit(1)
         res_ver = await db.execute(stmt_ver)
-        version = res_ver.scalar_one_or_none()
+        version = res_ver.scalars().first()
         if not version:
             raise ValueError("Resume version not found.")
 
         stmt_ext = select(ResumeExtractionRecord).where(
             ResumeExtractionRecord.resume_version_id == version_id
-        )
+        ).order_by(ResumeExtractionRecord.created_at.desc()).limit(1)
         res_ext = await db.execute(stmt_ext)
-        extraction = res_ext.scalar_one_or_none()
+        extraction = res_ext.scalars().first()
         if not extraction:
             raise ValueError("Extraction records not found for this version.")
 
         # 2. Fetch or create review record
         stmt_rev = select(ResumeReviewRecord).where(
             ResumeReviewRecord.resume_version_id == version_id
-        )
+        ).order_by(ResumeReviewRecord.created_at.desc()).limit(1)
         res_rev = await db.execute(stmt_rev)
-        review = res_rev.scalar_one_or_none()
+        review = res_rev.scalars().first()
 
         if not review:
             review = ResumeReviewRecord(
@@ -82,9 +82,9 @@ class ReviewService:
             await db.refresh(review)
 
         # 3. Detect conflicts against existing candidate profile
-        stmt_prof = select(CandidateProfile).where(CandidateProfile.user_id == user_id)
+        stmt_prof = select(CandidateProfile).where(CandidateProfile.user_id == user_id).limit(1)
         res_prof = await db.execute(stmt_prof)
-        profile = res_prof.scalar_one_or_none()
+        profile = res_prof.scalars().first()
 
         conflicts: List[Dict[str, Any]] = []
         personal_info = extraction.personal_info_json or {}
@@ -173,9 +173,9 @@ class ReviewService:
         stmt_rev = select(ResumeReviewRecord).where(
             ResumeReviewRecord.resume_version_id == version_id,
             ResumeReviewRecord.user_id == user_id
-        )
+        ).order_by(ResumeReviewRecord.created_at.desc()).limit(1)
         res_rev = await db.execute(stmt_rev)
-        review = res_rev.scalar_one_or_none()
+        review = res_rev.scalars().first()
         if not review:
             raise ValueError("Review record not found.")
 
@@ -208,32 +208,32 @@ class ReviewService:
         stmt_ver = select(ResumeVersionRecord).where(
             ResumeVersionRecord.id == version_id,
             ResumeVersionRecord.user_id == user_id
-        )
+        ).limit(1)
         res_ver = await db.execute(stmt_ver)
-        version = res_ver.scalar_one_or_none()
+        version = res_ver.scalars().first()
         if not version:
             raise ValueError("Resume version not found.")
 
         stmt_ext = select(ResumeExtractionRecord).where(
             ResumeExtractionRecord.resume_version_id == version_id
-        )
+        ).order_by(ResumeExtractionRecord.created_at.desc()).limit(1)
         res_ext = await db.execute(stmt_ext)
-        extraction = res_ext.scalar_one_or_none()
+        extraction = res_ext.scalars().first()
         if not extraction:
             raise ValueError("Extraction records not found.")
 
         stmt_rev = select(ResumeReviewRecord).where(
             ResumeReviewRecord.resume_version_id == version_id
-        )
+        ).order_by(ResumeReviewRecord.created_at.desc()).limit(1)
         res_rev = await db.execute(stmt_rev)
-        review = res_rev.scalar_one_or_none()
+        review = res_rev.scalars().first()
         if not review:
             raise ValueError("Review record not found.")
 
         # 2. Fetch candidate profile
-        stmt_prof = select(CandidateProfile).where(CandidateProfile.user_id == user_id)
+        stmt_prof = select(CandidateProfile).where(CandidateProfile.user_id == user_id).limit(1)
         res_prof = await db.execute(stmt_prof)
-        profile = res_prof.scalar_one_or_none()
+        profile = res_prof.scalars().first()
         if not profile:
             profile = CandidateProfile(user_id=user_id)
             db.add(profile)
@@ -322,60 +322,98 @@ class ReviewService:
             profile.social_links_json = curr_socials
             synced_count += len(extracted_socials)
 
-        # Sync Skills
-        skills_dict = extraction.skills_json or {}
-        for category, skill_list in skills_dict.items():
-            for item in skill_list:
-                s_name = item["name"]
-                stmt_s = select(CandidateSkillRecord).where(
-                    CandidateSkillRecord.profile_id == profile.id,
-                    CandidateSkillRecord.skill_name == s_name
-                )
-                res_s = await db.execute(stmt_s)
-                existing_s = res_s.scalar_one_or_none()
-                if not existing_s:
-                    new_skill = CandidateSkillRecord(
-                        profile_id=profile.id,
-                        skill_name=s_name,
-                        category=category,
-                        proficiency="Intermediate",
-                        provenance=FieldProvenance.RESUME_EXTRACTED.value
-                    )
-                    db.add(new_skill)
-                    synced_count += 1
+        # Pre-fetch existing skills, education, and experience in 3 bulk queries to prevent N+1 queries & MultipleResultsFound
+        existing_skills_res = await db.execute(
+            select(CandidateSkillRecord.skill_name).where(CandidateSkillRecord.profile_id == profile.id)
+        )
+        existing_skill_names: Set[str] = {
+            s.lower().strip() for s in existing_skills_res.scalars().all() if s
+        }
+
+        existing_edu_res = await db.execute(
+            select(EducationRecord.institution, EducationRecord.degree).where(EducationRecord.profile_id == profile.id)
+        )
+        existing_edu_keys: Set[Tuple[str, str]] = {
+            (inst.lower().strip(), (deg or "").lower().strip())
+            for inst, deg in existing_edu_res.all() if inst
+        }
+
+        existing_exp_res = await db.execute(
+            select(ExperienceRecord.company, ExperienceRecord.role).where(ExperienceRecord.profile_id == profile.id)
+        )
+        existing_exp_keys: Set[Tuple[str, str]] = {
+            (comp.lower().strip(), (role or "").lower().strip())
+            for comp, role in existing_exp_res.all() if comp
+        }
+
+        # 3. Sync Skills (robust against dict, list, or mixed formats)
+        skills_raw = extraction.skills_json or {}
+        skills_to_sync: List[Tuple[str, str]] = []
+
+        if isinstance(skills_raw, dict):
+            for category, skill_list in skills_raw.items():
+                if isinstance(skill_list, list):
+                    for item in skill_list:
+                        if isinstance(item, dict):
+                            s_name = (item.get("name") or item.get("skill_name") or "").strip()
+                            s_cat = item.get("category") or category
+                        elif isinstance(item, str):
+                            s_name = item.strip()
+                            s_cat = category
+                        else:
+                            continue
+                        if s_name:
+                            skills_to_sync.append((s_name, s_cat))
+        elif isinstance(skills_raw, list):
+            for item in skills_raw:
+                if isinstance(item, dict):
+                    s_name = (item.get("name") or item.get("skill_name") or "").strip()
+                    s_cat = item.get("category") or "tools"
+                elif isinstance(item, str):
+                    s_name = item.strip()
+                    s_cat = "tools"
+                else:
+                    continue
+                if s_name:
+                    skills_to_sync.append((s_name, s_cat))
 
         # Sync Inferred / Project Skills
         for item in (extraction.inferred_skills_json or []):
-            s_name = item.get("name")
+            if isinstance(item, dict):
+                s_name = (item.get("name") or item.get("skill_name") or "").strip()
+                s_cat = item.get("category") or "tools"
+            elif isinstance(item, str):
+                s_name = item.strip()
+                s_cat = "tools"
+            else:
+                continue
             if s_name:
-                stmt_s = select(CandidateSkillRecord).where(
-                    CandidateSkillRecord.profile_id == profile.id,
-                    CandidateSkillRecord.skill_name == s_name
-                )
-                res_s = await db.execute(stmt_s)
-                if not res_s.scalar_one_or_none():
-                    new_skill = CandidateSkillRecord(
-                        profile_id=profile.id,
-                        skill_name=s_name,
-                        category=item.get("category", "tools"),
-                        proficiency="Intermediate",
-                        provenance=FieldProvenance.RESUME_EXTRACTED.value
-                    )
-                    db.add(new_skill)
-                    synced_count += 1
+                skills_to_sync.append((s_name, s_cat))
 
-        # Sync Education
+        for s_name, s_cat in skills_to_sync:
+            s_key = s_name.lower().strip()
+            if s_key and s_key not in existing_skill_names:
+                new_skill = CandidateSkillRecord(
+                    profile_id=profile.id,
+                    skill_name=s_name,
+                    category=s_cat,
+                    proficiency="Intermediate",
+                    provenance=FieldProvenance.RESUME_EXTRACTED.value
+                )
+                db.add(new_skill)
+                existing_skill_names.add(s_key)
+                synced_count += 1
+
+        # 4. Sync Education (prevents MultipleResultsFound and handles duplicate schools)
         for edu in (extraction.education_json or []):
+            if not isinstance(edu, dict):
+                continue
             inst = (edu.get("institution") or "").strip()[:140]
             deg = (edu.get("degree") or "Degree").strip()[:140]
             fos = (edu.get("field_of_study") or "Computer Science & Engineering").strip()[:140]
             if inst:
-                stmt_e = select(EducationRecord).where(
-                    EducationRecord.profile_id == profile.id,
-                    EducationRecord.institution == inst
-                )
-                res_e = await db.execute(stmt_e)
-                if not res_e.scalar_one_or_none():
+                edu_key = (inst.lower(), deg.lower())
+                if edu_key not in existing_edu_keys:
                     new_edu = EducationRecord(
                         profile_id=profile.id,
                         institution=inst,
@@ -387,15 +425,19 @@ class ReviewService:
                         provenance=FieldProvenance.RESUME_EXTRACTED.value
                     )
                     db.add(new_edu)
+                    existing_edu_keys.add(edu_key)
                     synced_count += 1
 
-        # Sync Experience (formal or verified practical projects)
+        # 5. Sync Experience (formal or verified practical projects)
         experiences_to_sync = list(extraction.experience_json or [])
         if not experiences_to_sync and extraction.projects_json:
             for proj in extraction.projects_json:
+                if not isinstance(proj, dict):
+                    continue
                 desc = proj.get("description") or ""
                 if proj.get("technologies"):
-                    desc = f"Technologies: {', '.join(proj['technologies'])}\n{desc}".strip()
+                    techs = ", ".join(proj["technologies"]) if isinstance(proj["technologies"], list) else str(proj["technologies"])
+                    desc = f"Technologies: {techs}\n{desc}".strip()
                 experiences_to_sync.append({
                     "company": proj.get("name", "Software Project"),
                     "title": (profile.headline or "AI Automation & Full-Stack Developer").split("|")[0].strip(),
@@ -405,20 +447,19 @@ class ReviewService:
                 })
 
         for exp in experiences_to_sync:
-            comp = exp.get("company")
+            if not isinstance(exp, dict):
+                continue
+            comp = (exp.get("company") or "").strip()
+            role = (exp.get("title") or exp.get("role") or "Developer").strip()
             if comp:
-                stmt_x = select(ExperienceRecord).where(
-                    ExperienceRecord.profile_id == profile.id,
-                    ExperienceRecord.company == comp
-                )
-                res_x = await db.execute(stmt_x)
-                if not res_x.scalar_one_or_none():
+                exp_key = (comp.lower(), role.lower())
+                if exp_key not in existing_exp_keys:
                     resp = exp.get("responsibilities", [])
                     desc = "\n".join(resp) if isinstance(resp, list) else str(resp)
                     new_exp = ExperienceRecord(
                         profile_id=profile.id,
                         company=comp,
-                        role=exp.get("title") or "Developer",
+                        role=role,
                         employment_type="Full-time",
                         start_date=exp.get("start_date"),
                         end_date=exp.get("end_date"),
@@ -426,6 +467,7 @@ class ReviewService:
                         provenance=FieldProvenance.RESUME_EXTRACTED.value
                     )
                     db.add(new_exp)
+                    existing_exp_keys.add(exp_key)
                     synced_count += 1
 
         # Update review status
