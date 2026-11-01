@@ -11,7 +11,10 @@ import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-import fitz  # PyMuPDF
+try:
+    import pymupdf as fitz
+except ImportError:
+    import fitz
 import docx
 
 from contracts.resume.schemas import ConfidenceLevel, EvidenceDTO, ReviewStatus
