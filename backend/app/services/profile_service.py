@@ -87,13 +87,13 @@ class ProfileService:
             education=[
                 EducationResponse(
                     id=e.id,
-                    institution=e.institution,
-                    degree=e.degree,
-                    field_of_study=e.field_of_study,
+                    institution=(e.institution or "Institution")[:250],
+                    degree=(e.degree or "Degree")[:250],
+                    field_of_study=(e.field_of_study or "General Studies")[:250],
                     start_date=e.start_date,
                     end_date=e.end_date,
                     is_current=e.is_current,
-                    achievements=e.achievements,
+                    achievements=e.achievements[:1000] if e.achievements else None,
                     provenance=e.provenance,
                 )
                 for e in profile.education
@@ -101,13 +101,13 @@ class ProfileService:
             experience=[
                 ExperienceResponse(
                     id=exp.id,
-                    company=exp.company,
-                    role=exp.role,
-                    employment_type=exp.employment_type,
+                    company=(exp.company or "Company")[:250],
+                    role=(exp.role or "Role")[:250],
+                    employment_type=(exp.employment_type or "Full-time")[:100],
                     start_date=exp.start_date,
                     end_date=exp.end_date,
                     is_current=exp.is_current,
-                    description=exp.description,
+                    description=exp.description[:4000] if exp.description else None,
                     skills=exp.skills_json or [],
                     provenance=exp.provenance,
                 )
@@ -116,7 +116,7 @@ class ProfileService:
             skills=[
                 SkillResponse(
                     id=s.id,
-                    skill_name=s.skill_name,
+                    skill_name=(s.skill_name or "Skill")[:100],
                     category=s.category,
                     proficiency=s.proficiency,
                     years_experience=s.years_experience,

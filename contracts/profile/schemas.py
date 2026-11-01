@@ -34,13 +34,13 @@ class RemotePreference(StrEnum):
 # ------------------------------------------------------------------------------
 
 class EducationCreate(BaseModel):
-    institution: str = Field(..., min_length=2, max_length=150)
-    degree: str = Field(..., min_length=2, max_length=100)
-    field_of_study: str = Field(..., min_length=2, max_length=100)
+    institution: str = Field(..., min_length=2, max_length=255)
+    degree: str = Field(..., min_length=2, max_length=255)
+    field_of_study: str = Field(..., min_length=2, max_length=255)
     start_date: Optional[str] = Field(default=None, description="YYYY-MM or YYYY format")
     end_date: Optional[str] = Field(default=None, description="YYYY-MM or YYYY format")
     is_current: bool = Field(default=False)
-    achievements: Optional[str] = Field(default=None, max_length=500)
+    achievements: Optional[str] = Field(default=None, max_length=1000)
     provenance: FieldProvenance = Field(default=FieldProvenance.USER_PROVIDED)
 
 
@@ -53,13 +53,13 @@ class EducationResponse(EducationCreate):
 # ------------------------------------------------------------------------------
 
 class ExperienceCreate(BaseModel):
-    company: str = Field(..., min_length=2, max_length=150)
-    role: str = Field(..., min_length=2, max_length=100)
-    employment_type: str = Field(default="Full-time", max_length=50)
+    company: str = Field(..., min_length=2, max_length=255)
+    role: str = Field(..., min_length=2, max_length=255)
+    employment_type: str = Field(default="Full-time", max_length=100)
     start_date: Optional[str] = Field(default=None, description="YYYY-MM or YYYY")
     end_date: Optional[str] = Field(default=None, description="YYYY-MM or YYYY")
     is_current: bool = Field(default=False)
-    description: Optional[str] = Field(default=None, max_length=2000)
+    description: Optional[str] = Field(default=None, max_length=4000)
     skills: List[str] = Field(default_factory=list)
     provenance: FieldProvenance = Field(default=FieldProvenance.USER_PROVIDED)
 

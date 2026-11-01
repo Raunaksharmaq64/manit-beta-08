@@ -408,20 +408,21 @@ class ReviewService:
         for edu in (extraction.education_json or []):
             if not isinstance(edu, dict):
                 continue
-            inst = (edu.get("institution") or "").strip()[:140]
-            deg = (edu.get("degree") or "Degree").strip()[:140]
-            fos = (edu.get("field_of_study") or "Computer Science & Engineering").strip()[:140]
+            inst = (edu.get("institution") or "").strip()[:250]
+            deg = (edu.get("degree") or "Degree").strip()[:250]
+            fos = (edu.get("field_of_study") or "Computer Science & Engineering").strip()[:250]
             if inst:
                 edu_key = (inst.lower(), deg.lower())
                 if edu_key not in existing_edu_keys:
+                    grade_str = str(edu.get("grade") or "")[:500] if edu.get("grade") else None
                     new_edu = EducationRecord(
                         profile_id=profile.id,
                         institution=inst,
                         degree=deg,
                         field_of_study=fos,
-                        start_date=edu.get("start_date"),
-                        end_date=edu.get("end_date"),
-                        achievements=edu.get("grade"),
+                        start_date=str(edu.get("start_date") or "")[:20] if edu.get("start_date") else None,
+                        end_date=str(edu.get("end_date") or "")[:20] if edu.get("end_date") else None,
+                        achievements=grade_str,
                         provenance=FieldProvenance.RESUME_EXTRACTED.value
                     )
                     db.add(new_edu)
