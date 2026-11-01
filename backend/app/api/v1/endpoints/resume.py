@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contracts.resume.schemas import (
@@ -634,7 +635,9 @@ async def get_suggested_jobs_for_resume(
         # Only if this specific resume has zero extracted skills, fallback to profile skills
         if not candidate_skills_set:
             prof_res = await db.execute(
-                select(CandidateProfile).where(CandidateProfile.user_id == current_user.id)
+                select(CandidateProfile)
+                .options(selectinload(CandidateProfile.skills))
+                .where(CandidateProfile.user_id == current_user.id)
             )
             profile = prof_res.scalar_one_or_none()
             if profile and profile.skills:
