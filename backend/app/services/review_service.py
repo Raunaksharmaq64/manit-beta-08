@@ -65,7 +65,7 @@ class ReviewService:
         # 2. Fetch or create review record
         stmt_rev = select(ResumeReviewRecord).where(
             ResumeReviewRecord.resume_version_id == version_id
-        ).order_by(ResumeReviewRecord.created_at.desc()).limit(1)
+        ).order_by(ResumeReviewRecord.updated_at.desc()).limit(1)
         res_rev = await db.execute(stmt_rev)
         review = res_rev.scalars().first()
 
@@ -173,7 +173,7 @@ class ReviewService:
         stmt_rev = select(ResumeReviewRecord).where(
             ResumeReviewRecord.resume_version_id == version_id,
             ResumeReviewRecord.user_id == user_id
-        ).order_by(ResumeReviewRecord.created_at.desc()).limit(1)
+        ).order_by(ResumeReviewRecord.updated_at.desc()).limit(1)
         res_rev = await db.execute(stmt_rev)
         review = res_rev.scalars().first()
         if not review:
@@ -224,7 +224,7 @@ class ReviewService:
 
         stmt_rev = select(ResumeReviewRecord).where(
             ResumeReviewRecord.resume_version_id == version_id
-        ).order_by(ResumeReviewRecord.created_at.desc()).limit(1)
+        ).order_by(ResumeReviewRecord.updated_at.desc()).limit(1)
         res_rev = await db.execute(stmt_rev)
         review = res_rev.scalars().first()
         if not review:

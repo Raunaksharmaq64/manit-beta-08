@@ -7,6 +7,7 @@ Phase: 4 — Resume Intelligence & Reviewed Candidate Evidence
 from __future__ import annotations
 
 import io
+import time
 import urllib.parse
 import uuid
 from typing import Any, Dict, List, Optional
