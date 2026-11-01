@@ -16,6 +16,27 @@ export default function ResumeAnalysisPage() {
   const [showEvidence, setShowEvidence] = useState(true);
   const [suggestedJobs, setSuggestedJobs] = useState<any[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
+  const [syncingProfile, setSyncingProfile] = useState(false);
+  const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
+
+  const handleSyncToProfile = async () => {
+    try {
+      setSyncingProfile(true);
+      setSyncSuccessMsg(null);
+      const res: any = await apiClient.post(`/api/v1/resumes/${resumeId}/sync-profile`);
+      if (res.success || res.data) {
+        setSyncSuccessMsg(
+          res.data?.message ||
+            "✓ Successfully synced skills, portfolio links, social handles, experience, and education to your Candidate Profile!"
+        );
+        setTimeout(() => setSyncSuccessMsg(null), 8000);
+      }
+    } catch (err: any) {
+      alert("Failed to sync to profile: " + (err.message || "Unknown error"));
+    } finally {
+      setSyncingProfile(false);
+    }
+  };
 
   useEffect(() => {
     const fetchSuggestedJobs = async () => {
@@ -95,7 +116,16 @@ export default function ResumeAnalysisPage() {
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-3 flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={syncingProfile}
+            onClick={handleSyncToProfile}
+            className="px-4 py-2.5 rounded-xl neo-pill text-xs font-black text-emerald-800 hover:text-emerald-900 border border-emerald-300 shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
+          >
+            <span>{syncingProfile ? "⏳" : "🔄"}</span>
+            <span>{syncingProfile ? "Syncing..." : "Auto-Sync to My Profile"}</span>
+          </button>
           <Link
             href={`/resumes/${resumeId}/ats`}
             className="neo-btn-primary px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0"
@@ -107,6 +137,22 @@ export default function ResumeAnalysisPage() {
       </div>
 
       <ResumeSubNav resumeId={resumeId} />
+
+      {/* Sync Success Banner */}
+      {syncSuccessMsg && (
+        <div className="p-4 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-950 text-xs font-bold flex items-center justify-between shadow-sm animate-fade-in">
+          <div className="flex items-center gap-2">
+            <span>✨</span>
+            <span>{syncSuccessMsg}</span>
+          </div>
+          <Link
+            href="/profile"
+            className="px-3 py-1 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-black transition-all shrink-0 shadow-sm"
+          >
+            View Candidate Profile →
+          </Link>
+        </div>
+      )}
 
       {/* Scanned PDF Warning Banner */}
       {extraction?.is_scanned_pdf && (

@@ -79,6 +79,11 @@ class ProfileService:
             state=profile.state,
             country=profile.country,
             timezone=profile.timezone,
+            portfolio_url=profile.portfolio_url,
+            linkedin_url=profile.linkedin_url,
+            github_url=profile.github_url,
+            website_url=profile.website_url,
+            social_links=profile.social_links_json or {},
             education=[
                 EducationResponse(
                     id=e.id,
@@ -129,9 +134,12 @@ class ProfileService:
         user_id: str,
         update_data: CandidateProfileUpdate,
     ) -> CandidateProfileResponse:
-        """Updates personal and contact details."""
+        """Updates personal, contact and link details."""
         profile = await ProfileService.get_or_create_profile(db, user_id)
-        for field, value in update_data.model_dump(exclude_unset=True).items():
+        data = update_data.model_dump(exclude_unset=True)
+        if "social_links" in data:
+            profile.social_links_json = data.pop("social_links")
+        for field, value in data.items():
             setattr(profile, field, value)
         profile.updated_at = utc_now()
         await db.commit()

@@ -96,6 +96,11 @@ class CandidateProfileUpdate(BaseModel):
     state: Optional[str] = Field(default=None, max_length=80)
     country: Optional[str] = Field(default=None, max_length=80)
     timezone: Optional[str] = Field(default=None, max_length=50)
+    portfolio_url: Optional[str] = Field(default=None, max_length=255)
+    linkedin_url: Optional[str] = Field(default=None, max_length=255)
+    github_url: Optional[str] = Field(default=None, max_length=255)
+    website_url: Optional[str] = Field(default=None, max_length=255)
+    social_links: Dict[str, Any] = Field(default_factory=dict)
 
 
 class CandidateProfileResponse(BaseModel):
@@ -108,6 +113,11 @@ class CandidateProfileResponse(BaseModel):
     state: Optional[str] = None
     country: Optional[str] = None
     timezone: Optional[str] = None
+    portfolio_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    github_url: Optional[str] = None
+    website_url: Optional[str] = None
+    social_links: Dict[str, Any] = Field(default_factory=dict)
     education: List[EducationResponse] = Field(default_factory=list)
     experience: List[ExperienceResponse] = Field(default_factory=list)
     skills: List[SkillResponse] = Field(default_factory=list)

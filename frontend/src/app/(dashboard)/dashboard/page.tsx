@@ -98,7 +98,7 @@ export default function UnifiedDashboardPage() {
 
   useEffect(() => {
     // Always trigger fresh background sync on reload / navigation
-    fetchDashboard(true);
+    fetchDashboard(false);
   }, []);
 
   const handleToggleSave = async (item: OpportunityItem) => {

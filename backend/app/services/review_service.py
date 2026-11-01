@@ -289,6 +289,39 @@ class ReviewService:
                 profile.summary = summary["text"]
                 overwritten_count += 1
 
+        # Sync Portfolio & Social Links
+        if personal.get("portfolio_url"):
+            if not profile.portfolio_url or sync_req.overwrite_conflicts:
+                profile.portfolio_url = personal["portfolio_url"]
+                synced_count += 1
+
+        if personal.get("linkedin_url"):
+            if not profile.linkedin_url or sync_req.overwrite_conflicts:
+                profile.linkedin_url = personal["linkedin_url"]
+                synced_count += 1
+
+        if personal.get("github_url"):
+            if not profile.github_url or sync_req.overwrite_conflicts:
+                profile.github_url = personal["github_url"]
+                synced_count += 1
+
+        if personal.get("website_url"):
+            if not profile.website_url or sync_req.overwrite_conflicts:
+                profile.website_url = personal["website_url"]
+                synced_count += 1
+
+        extracted_socials = personal.get("social_links") or {}
+        if extracted_socials:
+            curr_socials = dict(profile.social_links_json or {})
+            if sync_req.overwrite_conflicts:
+                curr_socials.update(extracted_socials)
+            else:
+                for k, v in extracted_socials.items():
+                    if k not in curr_socials:
+                        curr_socials[k] = v
+            profile.social_links_json = curr_socials
+            synced_count += len(extracted_socials)
+
         # Sync Skills
         skills_dict = extraction.skills_json or {}
         for category, skill_list in skills_dict.items():

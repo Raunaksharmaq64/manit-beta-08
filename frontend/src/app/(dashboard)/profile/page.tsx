@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiClient } from "../../../services/apiClient";
 
 interface Education {
@@ -47,6 +48,11 @@ interface Profile {
   state?: string;
   country?: string;
   timezone?: string;
+  portfolio_url?: string;
+  linkedin_url?: string;
+  github_url?: string;
+  website_url?: string;
+  social_links?: Record<string, string>;
   education: Education[];
   experience: Experience[];
   skills: Skill[];
@@ -78,18 +84,32 @@ export default function ProfilePage() {
   const [completeness, setCompleteness] = useState<Completeness | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingBasic, setEditingBasic] = useState(false);
+  const [syncingResume, setSyncingResume] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   // Edit form state
   const [headline, setHeadline] = useState("");
   const [summary, setSummary] = useState("");
+  const [phone, setPhone] = useState("");
   const [city, setCity] = useState("");
   const [country, setCountry] = useState("");
+  const [portfolioUrl, setPortfolioUrl] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [githubUrl, setGithubUrl] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
 
   // Modal forms
   const [showEduModal, setShowEduModal] = useState(false);
   const [eduInst, setEduInst] = useState("");
   const [eduDegree, setEduDegree] = useState("");
   const [eduField, setEduField] = useState("");
+
+  const [showExpModal, setShowExpModal] = useState(false);
+  const [expCompany, setExpCompany] = useState("");
+  const [expRole, setExpRole] = useState("");
+  const [expDesc, setExpDesc] = useState("");
+  const [expStart, setExpStart] = useState("");
+  const [expEnd, setExpEnd] = useState("");
 
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [skillName, setSkillName] = useState("");
@@ -105,8 +125,13 @@ export default function ProfilePage() {
       setCompleteness(cResp.data);
       setHeadline(pResp.data.headline || "");
       setSummary(pResp.data.summary || "");
+      setPhone(pResp.data.phone || "");
       setCity(pResp.data.city || "");
       setCountry(pResp.data.country || "");
+      setPortfolioUrl(pResp.data.portfolio_url || "");
+      setLinkedinUrl(pResp.data.linkedin_url || "");
+      setGithubUrl(pResp.data.github_url || "");
+      setWebsiteUrl(pResp.data.website_url || "");
     } catch (err) {
       console.error("Failed to load profile:", err);
     } finally {
@@ -118,12 +143,41 @@ export default function ProfilePage() {
     loadData();
   }, []);
 
+  const handleSyncFromLatestResume = async () => {
+    try {
+      setSyncingResume(true);
+      setSyncNotice(null);
+      const res: any = await apiClient("/candidate/profile/sync-latest-resume", {
+        method: "POST",
+      });
+      if (res.data || res.success) {
+        setSyncNotice("✓ Successfully synced skills, links, experience, and contact details from your latest resume!");
+        setTimeout(() => setSyncNotice(null), 8000);
+        await loadData();
+      }
+    } catch (err: any) {
+      alert("Failed to sync from resume: " + (err.message || "Unknown error"));
+    } finally {
+      setSyncingResume(false);
+    }
+  };
+
   const handleSaveBasic = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const resp = await apiClient<Profile>("/candidate/profile", {
         method: "PUT",
-        body: JSON.stringify({ headline, summary, city, country }),
+        body: JSON.stringify({
+          headline,
+          summary,
+          phone,
+          city,
+          country,
+          portfolio_url: portfolioUrl || null,
+          linkedin_url: linkedinUrl || null,
+          github_url: githubUrl || null,
+          website_url: websiteUrl || null,
+        }),
       });
       setProfile(resp.data);
       setEditingBasic(false);
@@ -165,6 +219,40 @@ export default function ProfilePage() {
     }
   };
 
+  const handleAddExp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiClient("/candidate/experience", {
+        method: "POST",
+        body: JSON.stringify({
+          company: expCompany,
+          role: expRole,
+          description: expDesc,
+          start_date: expStart || undefined,
+          end_date: expEnd || undefined,
+          provenance: "USER_PROVIDED",
+        }),
+      });
+      setShowExpModal(false);
+      setExpCompany("");
+      setExpRole("");
+      setExpDesc("");
+      loadData();
+    } catch (err) {
+      alert("Failed to add experience.");
+    }
+  };
+
+  const handleDeleteExp = async (id: string) => {
+    if (!confirm("Delete this experience entry?")) return;
+    try {
+      await apiClient(`/candidate/experience/${id}`, { method: "DELETE" });
+      loadData();
+    } catch (err) {
+      alert("Failed to delete experience.");
+    }
+  };
+
   const handleAddSkill = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -195,31 +283,75 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto py-12 px-4 text-center text-slate-400">Loading profile...</div>
+      <div className="max-w-5xl mx-auto py-16 px-4 text-center text-slate-700 font-bold">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-3"></div>
+        Loading candidate profile...
+      </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8 animate-fade-in">
+    <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-6 animate-fade-in">
+      {/* Page Header with Auto-Sync action */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-300/80 gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+            Candidate Profile
+          </h1>
+          <p className="mt-1 text-xs sm:text-sm text-slate-600 font-semibold">
+            Your canonical verified identity, career summary, portfolio links, and synchronized skill competencies.
+          </p>
+        </div>
+
+        <div className="flex items-center space-x-3">
+          <button
+            type="button"
+            disabled={syncingResume}
+            onClick={handleSyncFromLatestResume}
+            className="px-4 py-2.5 rounded-xl neo-pill text-xs font-black text-indigo-900 hover:text-indigo-600 border border-white/90 shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
+          >
+            <span>{syncingResume ? "⏳" : "🔄"}</span>
+            <span>{syncingResume ? "Syncing from Resume..." : "Auto-Sync from Resume"}</span>
+          </button>
+          <Link
+            href="/resumes"
+            className="neo-btn-primary px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0"
+          >
+            <span>📄</span>
+            <span>Manage Resumes →</span>
+          </Link>
+        </div>
+      </div>
+
+      {/* Sync Notice Alert */}
+      {syncNotice && (
+        <div className="p-4 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-950 text-xs font-bold flex items-center gap-2 shadow-sm animate-fade-in">
+          <span>✨</span>
+          <span>{syncNotice}</span>
+        </div>
+      )}
+
       {/* Completeness Banner & Section Impact Unlocks */}
       {completeness && (
-        <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-sm space-y-4">
+        <div className="neo-card p-6 rounded-2xl border border-white/90 shadow-sm space-y-4">
           <div className="flex justify-between items-center">
             <div>
-              <span className="text-sm font-semibold tracking-wide text-indigo-400 uppercase">
-                Profile Completeness & Matching Power
+              <span className="text-xs font-black tracking-wide text-indigo-700 uppercase">
+                Profile Completeness &amp; Matching Power
               </span>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-600 font-semibold mt-0.5">
                 Complete each section to activate high-precision semantic matching and compensation calibration.
               </p>
             </div>
             <div className="text-right">
-              <span className="text-2xl font-bold text-white">{completeness.score_percentage}%</span>
+              <span className="text-2xl font-black text-indigo-700 font-mono">
+                {completeness.score_percentage}%
+              </span>
             </div>
           </div>
-          <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+          <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden">
             <div
-              className="bg-gradient-to-r from-indigo-500 to-emerald-400 h-2.5 rounded-full transition-all duration-500"
+              className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500"
               style={{ width: `${completeness.score_percentage}%` }}
             />
           </div>
@@ -229,157 +361,269 @@ export default function ProfilePage() {
               {completeness.section_breakdown.map((sec) => (
                 <div
                   key={sec.section_key}
-                  className={`p-3 rounded-xl border text-xs transition-all ${sec.is_completed
-                    ? "bg-slate-950/60 border-emerald-500/30 text-slate-300"
-                    : "bg-slate-950/40 border-amber-500/30 text-slate-400"
-                    }`}
+                  className={`p-3 rounded-xl border text-xs transition-all ${
+                    sec.is_completed
+                      ? "neo-box border-emerald-300 text-slate-800"
+                      : "neo-inset border-amber-300/70 text-slate-700"
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-semibold text-white flex items-center gap-1.5">
+                    <span className="font-black text-slate-900 flex items-center gap-1.5">
                       {sec.is_completed ? (
-                        <span className="text-emerald-400 font-bold">✓</span>
+                        <span className="text-emerald-700 font-bold">✓</span>
                       ) : (
-                        <span className="text-amber-400 font-bold">○</span>
+                        <span className="text-amber-700 font-bold">○</span>
                       )}
                       {sec.section_name}
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-md neo-pill font-mono font-bold text-slate-700">
                       {sec.weight_percentage}% wt
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-300">
-                    <span className="text-indigo-400 font-medium">Unlocks: </span>
+                  <div className="text-[11px] text-slate-600 font-medium">
+                    <span className="text-indigo-700 font-bold">Unlocks: </span>
                     {sec.unlocks}
                   </div>
                 </div>
               ))}
             </div>
           )}
-
-          {completeness.missing_sections.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2 items-center text-xs text-slate-400">
-              <span>Next steps to unlock:</span>
-              {completeness.missing_sections.map((sec) => (
-                <span key={sec} className="px-2.5 py-1 bg-amber-500/10 text-amber-300 rounded border border-amber-500/20">
-                  + {sec}
-                </span>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
-      {/* Basic Personal Information */}
-      <section className="neo-box p-6 rounded-2xl border border-white/90 shadow-sm">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-black text-slate-900">Basic Information</h2>
+      {/* Basic Personal Information & Social Links */}
+      <section className="neo-box p-6 rounded-2xl border border-white/95 shadow-sm space-y-4">
+        <div className="flex justify-between items-center pb-3 border-b border-slate-300/80">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">Personal &amp; Contact Details</h2>
+            <p className="text-xs text-slate-600 font-semibold mt-0.5">
+              Auto-synced from your uploaded resume or manually editable.
+            </p>
+          </div>
           <button
             onClick={() => setEditingBasic(!editingBasic)}
-            className="text-xs font-bold px-3.5 py-1.5 rounded-xl neo-pill text-indigo-900 hover:text-indigo-600 transition-all"
+            className="text-xs font-bold px-3.5 py-1.5 rounded-xl neo-pill text-indigo-900 hover:text-indigo-600 transition-all border border-white/90"
           >
-            {editingBasic ? "Cancel" : "Edit Profile"}
+            {editingBasic ? "Cancel" : "Edit Details"}
           </button>
         </div>
 
         {editingBasic ? (
           <form onSubmit={handleSaveBasic} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase mb-1">Headline</label>
-              <input
-                type="text"
-                value={headline}
-                onChange={(e) => setHeadline(e.target.value)}
-                className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-black uppercase text-slate-700 mb-1">Headline / Role Title</label>
+                <input
+                  type="text"
+                  value={headline}
+                  onChange={(e) => setHeadline(e.target.value)}
+                  placeholder="e.g. Senior Full-Stack Engineer"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-black uppercase text-slate-700 mb-1">Contact Phone</label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="e.g. +1 (555) 123-4567"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
+                />
+              </div>
             </div>
+
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase mb-1">Summary</label>
+              <label className="block text-xs font-black uppercase text-slate-700 mb-1">Executive Summary / Bio</label>
               <textarea
                 value={summary}
                 onChange={(e) => setSummary(e.target.value)}
                 rows={3}
-                className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
+                placeholder="2-3 sentence overview of your domain focus and technical leadership."
+                className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase mb-1">City</label>
+                <label className="block text-xs font-black uppercase text-slate-700 mb-1">City</label>
                 <input
                   type="text"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
-                  className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
+                  placeholder="e.g. San Francisco, CA"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase mb-1">Country</label>
+                <label className="block text-xs font-black uppercase text-slate-700 mb-1">Country</label>
                 <input
                   type="text"
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
-                  className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
+                  placeholder="e.g. United States"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
                 />
               </div>
             </div>
-            <button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium">
-              Save Changes
-            </button>
+
+            <div className="pt-2 border-t border-slate-200 space-y-3">
+              <span className="text-xs font-black uppercase text-indigo-700 block">Portfolio &amp; Social Links</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Portfolio URL</label>
+                  <input
+                    type="url"
+                    value={portfolioUrl}
+                    onChange={(e) => setPortfolioUrl(e.target.value)}
+                    placeholder="https://myportfolio.dev"
+                    className="w-full px-3 py-2 neo-inset rounded-xl text-xs text-slate-900 font-semibold border border-slate-300/80"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">LinkedIn Profile</label>
+                  <input
+                    type="url"
+                    value={linkedinUrl}
+                    onChange={(e) => setLinkedinUrl(e.target.value)}
+                    placeholder="https://linkedin.com/in/username"
+                    className="w-full px-3 py-2 neo-inset rounded-xl text-xs text-slate-900 font-semibold border border-slate-300/80"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">GitHub Profile</label>
+                  <input
+                    type="url"
+                    value={githubUrl}
+                    onChange={(e) => setGithubUrl(e.target.value)}
+                    placeholder="https://github.com/username"
+                    className="w-full px-3 py-2 neo-inset rounded-xl text-xs text-slate-900 font-semibold border border-slate-300/80"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Personal Website</label>
+                  <input
+                    type="url"
+                    value={websiteUrl}
+                    onChange={(e) => setWebsiteUrl(e.target.value)}
+                    placeholder="https://mywebsite.com"
+                    className="w-full px-3 py-2 neo-inset rounded-xl text-xs text-slate-900 font-semibold border border-slate-300/80"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingBasic(false)}
+                className="px-4 py-2 neo-pill rounded-xl text-xs font-bold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="neo-btn-primary px-5 py-2 rounded-xl text-xs font-bold shadow-md"
+              >
+                Save Changes
+              </button>
+            </div>
           </form>
         ) : (
-          <div className="space-y-2">
-            <div className="text-xl font-bold text-white">{profile?.headline || "No headline configured"}</div>
-            <p className="text-sm text-slate-300">{profile?.summary || "Add a career summary to highlight your strengths."}</p>
-            <div className="text-xs text-slate-400 mt-2">
-              Location: {profile?.city || "Remote"}, {profile?.country || "Global"}
+          <div className="space-y-4">
+            <div>
+              <div className="text-xl font-black text-slate-900">{profile?.headline || "Candidate"}</div>
+              <p className="text-xs sm:text-sm text-slate-700 font-semibold leading-relaxed mt-1">
+                {profile?.summary || "Add a career summary to highlight your strengths."}
+              </p>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 font-bold mt-2">
+                <span>📍 {profile?.city || "Remote"}, {profile?.country || "Global"}</span>
+                {profile?.phone && <span>📞 {profile.phone}</span>}
+              </div>
+            </div>
+
+            {/* Links Badges */}
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-300/70">
+              {profile?.portfolio_url && (
+                <a
+                  href={profile.portfolio_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-xl neo-pill text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1.5 border border-white/90 shadow-sm"
+                >
+                  <span>🌐</span>
+                  <span>Portfolio</span>
+                </a>
+              )}
+              {profile?.linkedin_url && (
+                <a
+                  href={profile.linkedin_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-xl neo-pill text-xs font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1.5 border border-white/90 shadow-sm"
+                >
+                  <span>💼</span>
+                  <span>LinkedIn</span>
+                </a>
+              )}
+              {profile?.github_url && (
+                <a
+                  href={profile.github_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-xl neo-pill text-xs font-bold text-slate-900 hover:text-indigo-600 flex items-center gap-1.5 border border-white/90 shadow-sm"
+                >
+                  <span>🐙</span>
+                  <span>GitHub</span>
+                </a>
+              )}
+              {profile?.website_url && profile.website_url !== profile.portfolio_url && (
+                <a
+                  href={profile.website_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-xl neo-pill text-xs font-bold text-purple-700 hover:text-purple-900 flex items-center gap-1.5 border border-white/90 shadow-sm"
+                >
+                  <span>🔗</span>
+                  <span>Website</span>
+                </a>
+              )}
+              {profile?.social_links && Object.entries(profile.social_links).map(([k, v]) => (
+                <a
+                  key={k}
+                  href={v}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 rounded-xl neo-pill text-xs font-bold text-slate-800 hover:text-indigo-600 flex items-center gap-1.5 border border-white/90 shadow-sm capitalize"
+                >
+                  <span>⚡</span>
+                  <span>{k}</span>
+                </a>
+              ))}
+              {!profile?.portfolio_url && !profile?.linkedin_url && !profile?.github_url && (
+                <span className="text-xs text-slate-500 italic font-semibold">
+                  No portfolio or social links synced yet. Click &quot;Auto-Sync from Resume&quot; or &quot;Edit Details&quot; to add.
+                </span>
+              )}
             </div>
           </div>
         )}
       </section>
 
-      {/* Education Credentials */}
-      <section className="neo-box p-6 rounded-2xl border border-white/90 shadow-sm">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-black text-slate-900">Education Credentials</h2>
-          <button
-            onClick={() => setShowEduModal(true)}
-            className="text-xs font-semibold px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white"
-          >
-            + Add Education
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          {profile?.education && profile.education.length > 0 ? (
-            profile.education.map((edu) => (
-              <div key={edu.id} className="p-4 bg-slate-800/60 border border-slate-800 rounded-lg flex justify-between items-start">
-                <div>
-                  <h3 className="font-semibold text-white">{edu.institution}</h3>
-                  <p className="text-sm text-indigo-300">{edu.degree} in {edu.field_of_study}</p>
-                  <span className="inline-block mt-2 px-2 py-0.5 text-[10px] uppercase font-bold rounded bg-slate-800 text-slate-400 border border-slate-700">
-                    Provenance: {edu.provenance}
-                  </span>
-                </div>
-                <button
-                  onClick={() => handleDeleteEdu(edu.id)}
-                  className="text-xs text-red-400 hover:text-red-300"
-                >
-                  Delete
-                </button>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-slate-400">No education credentials added yet.</p>
-          )}
-        </div>
-      </section>
-
       {/* Skills Section */}
-      <section className="neo-box p-6 rounded-2xl border border-white/90 shadow-sm">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-black text-slate-900">Skills & Competencies</h2>
+      <section className="neo-box p-6 rounded-2xl border border-white/95 shadow-sm space-y-4">
+        <div className="flex justify-between items-center pb-3 border-b border-slate-300/80">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">
+              Verified Skills &amp; Competencies ({profile?.skills?.length || 0})
+            </h2>
+            <p className="text-xs text-slate-600 font-semibold mt-0.5">
+              Synced from parsed resume evidence and verified technical skills.
+            </p>
+          </div>
           <button
             onClick={() => setShowSkillModal(true)}
-            className="text-xs font-semibold px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white"
+            className="text-xs font-bold px-3 py-1.5 rounded-xl neo-pill text-indigo-900 hover:text-indigo-600 border border-white/90 shadow-sm"
           >
             + Add Skill
           </button>
@@ -390,74 +634,199 @@ export default function ProfilePage() {
             profile.skills.map((skill) => (
               <span
                 key={skill.id}
-                className="px-3.5 py-1.5 neo-pill rounded-xl text-xs sm:text-sm font-bold text-slate-900 border border-white/90 shadow-sm flex items-center space-x-2"
+                className="px-3 py-1.5 neo-pill rounded-xl text-xs font-bold text-slate-900 border border-white/90 shadow-sm flex items-center space-x-2"
               >
-                <span className="font-medium">{skill.skill_name}</span>
-                <span className="text-xs text-indigo-400">({skill.proficiency})</span>
+                <span>{skill.skill_name}</span>
+                <span className="text-[10px] font-mono text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-md">
+                  {skill.proficiency}
+                </span>
                 <button
+                  type="button"
                   onClick={() => handleDeleteSkill(skill.id)}
-                  className="text-slate-400 hover:text-red-400 font-bold ml-1"
+                  className="text-slate-400 hover:text-rose-600 font-bold ml-1"
                 >
                   ×
                 </button>
               </span>
             ))
           ) : (
-            <p className="text-sm text-slate-400">No skills listed yet.</p>
+            <p className="text-xs text-slate-600 italic font-semibold">
+              No skills synced yet. Upload a resume to automatically extract your full skill inventory.
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* Experience Section */}
+      <section className="neo-box p-6 rounded-2xl border border-white/95 shadow-sm space-y-4">
+        <div className="flex justify-between items-center pb-3 border-b border-slate-300/80">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">
+              Work Experience ({profile?.experience?.length || 0})
+            </h2>
+            <p className="text-xs text-slate-600 font-semibold mt-0.5">
+              Professional roles and verified engineering accomplishments.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowExpModal(true)}
+            className="text-xs font-bold px-3 py-1.5 rounded-xl neo-pill text-indigo-900 hover:text-indigo-600 border border-white/90 shadow-sm"
+          >
+            + Add Role
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {profile?.experience && profile.experience.length > 0 ? (
+            profile.experience.map((exp) => (
+              <div
+                key={exp.id}
+                className="p-4 rounded-xl neo-card border border-white/90 flex justify-between items-start"
+              >
+                <div className="space-y-1">
+                  <h3 className="text-sm font-black text-slate-900">{exp.role}</h3>
+                  <p className="text-xs font-bold text-indigo-700">
+                    {exp.company} {exp.employment_type && `• ${exp.employment_type}`}
+                  </p>
+                  {(exp.start_date || exp.end_date) && (
+                    <span className="text-[11px] text-slate-600 font-mono font-bold block">
+                      {exp.start_date || ""} – {exp.is_current ? "Present" : exp.end_date || ""}
+                    </span>
+                  )}
+                  {exp.description && (
+                    <p className="text-xs text-slate-700 font-medium leading-relaxed pt-1">
+                      {exp.description}
+                    </p>
+                  )}
+                  {exp.skills && exp.skills.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1.5">
+                      {exp.skills.map((s, idx) => (
+                        <span key={idx} className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-900 border border-indigo-200 font-mono font-bold">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleDeleteExp(exp.id)}
+                  className="text-xs text-rose-600 hover:text-rose-800 font-bold ml-3"
+                >
+                  Delete
+                </button>
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-slate-600 italic font-semibold">
+              No experience records yet. Auto-sync from your resume to populate roles automatically.
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* Education Credentials */}
+      <section className="neo-box p-6 rounded-2xl border border-white/95 shadow-sm space-y-4">
+        <div className="flex justify-between items-center pb-3 border-b border-slate-300/80">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">
+              Education Credentials ({profile?.education?.length || 0})
+            </h2>
+            <p className="text-xs text-slate-600 font-semibold mt-0.5">
+              Degrees, university credentials, and academic background.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowEduModal(true)}
+            className="text-xs font-bold px-3 py-1.5 rounded-xl neo-pill text-indigo-900 hover:text-indigo-600 border border-white/90 shadow-sm"
+          >
+            + Add Education
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {profile?.education && profile.education.length > 0 ? (
+            profile.education.map((edu) => (
+              <div
+                key={edu.id}
+                className="p-4 rounded-xl neo-card border border-white/90 flex justify-between items-start"
+              >
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">{edu.institution}</h3>
+                  <p className="text-xs font-bold text-indigo-700">
+                    {edu.degree} in {edu.field_of_study}
+                  </p>
+                  {(edu.start_date || edu.end_date) && (
+                    <span className="text-[11px] text-slate-600 font-mono font-bold block mt-0.5">
+                      {edu.start_date || ""} – {edu.end_date || ""}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleDeleteEdu(edu.id)}
+                  className="text-xs text-rose-600 hover:text-rose-800 font-bold"
+                >
+                  Delete
+                </button>
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-slate-600 italic font-semibold">
+              No education credentials added yet.
+            </p>
           )}
         </div>
       </section>
 
       {/* Add Education Modal */}
       {showEduModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-700 max-w-md w-full p-6 rounded-xl shadow-xl">
-            <h3 className="text-lg font-bold text-white mb-4">Add Education Credential</h3>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="neo-box max-w-md w-full p-6 rounded-2xl border border-white/95 shadow-xl space-y-4">
+            <h3 className="text-base font-black text-slate-900">Add Education Credential</h3>
             <form onSubmit={handleAddEdu} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Institution</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Institution</label>
                 <input
                   type="text"
                   required
                   value={eduInst}
                   onChange={(e) => setEduInst(e.target.value)}
                   placeholder="e.g. Stanford University"
-                  className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Degree</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Degree</label>
                 <input
                   type="text"
                   required
                   value={eduDegree}
                   onChange={(e) => setEduDegree(e.target.value)}
-                  placeholder="e.g. B.S."
-                  className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
+                  placeholder="e.g. B.S. or M.S."
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Field of Study</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Field of Study</label>
                 <input
                   type="text"
                   required
                   value={eduField}
                   onChange={(e) => setEduField(e.target.value)}
                   placeholder="e.g. Computer Science"
-                  className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
                 />
               </div>
-              <div className="flex justify-end space-x-3 mt-6">
+              <div className="flex justify-end space-x-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowEduModal(false)}
-                  className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm"
+                  className="px-4 py-2 neo-pill rounded-xl text-xs font-bold text-slate-700"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium"
+                  className="neo-btn-primary px-4 py-2 rounded-xl text-xs font-bold shadow-md"
                 >
                   Save Credential
                 </button>
@@ -467,46 +836,126 @@ export default function ProfilePage() {
         </div>
       )}
 
+      {/* Add Experience Modal */}
+      {showExpModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="neo-box max-w-md w-full p-6 rounded-2xl border border-white/95 shadow-xl space-y-4">
+            <h3 className="text-base font-black text-slate-900">Add Professional Role</h3>
+            <form onSubmit={handleAddExp} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Role Title</label>
+                <input
+                  type="text"
+                  required
+                  value={expRole}
+                  onChange={(e) => setExpRole(e.target.value)}
+                  placeholder="e.g. Senior Software Engineer"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Company Name</label>
+                <input
+                  type="text"
+                  required
+                  value={expCompany}
+                  onChange={(e) => setExpCompany(e.target.value)}
+                  placeholder="e.g. Stripe, Google, Acme Inc."
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Start Date</label>
+                  <input
+                    type="text"
+                    value={expStart}
+                    onChange={(e) => setExpStart(e.target.value)}
+                    placeholder="2021"
+                    className="w-full px-3 py-2 neo-inset rounded-xl text-xs text-slate-900 font-semibold border border-slate-300/80"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">End Date</label>
+                  <input
+                    type="text"
+                    value={expEnd}
+                    onChange={(e) => setExpEnd(e.target.value)}
+                    placeholder="Present"
+                    className="w-full px-3 py-2 neo-inset rounded-xl text-xs text-slate-900 font-semibold border border-slate-300/80"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Description</label>
+                <textarea
+                  rows={3}
+                  value={expDesc}
+                  onChange={(e) => setExpDesc(e.target.value)}
+                  placeholder="Key contributions and systems built."
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs text-slate-900 font-semibold border border-slate-300/80"
+                />
+              </div>
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowExpModal(false)}
+                  className="px-4 py-2 neo-pill rounded-xl text-xs font-bold text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="neo-btn-primary px-4 py-2 rounded-xl text-xs font-bold shadow-md"
+                >
+                  Save Role
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Add Skill Modal */}
       {showSkillModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-700 max-w-sm w-full p-6 rounded-xl shadow-xl">
-            <h3 className="text-lg font-bold text-white mb-4">Add Skill</h3>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="neo-box max-w-sm w-full p-6 rounded-2xl border border-white/95 shadow-xl space-y-4">
+            <h3 className="text-base font-black text-slate-900">Add Skill</h3>
             <form onSubmit={handleAddSkill} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Skill Name</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Skill Name</label>
                 <input
                   type="text"
                   required
                   value={skillName}
                   onChange={(e) => setSkillName(e.target.value)}
-                  placeholder="e.g. TypeScript"
-                  className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
+                  placeholder="e.g. Python, Docker, Next.js"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Proficiency</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Proficiency</label>
                 <select
                   value={skillProf}
                   onChange={(e) => setSkillProf(e.target.value)}
-                  className="w-full px-3 py-2 neo-inset rounded-xl text-slate-900 font-semibold"
+                  className="w-full px-3 py-2 neo-inset rounded-xl text-xs sm:text-sm text-slate-900 font-semibold border border-slate-300/80"
                 >
                   <option value="Beginner">Beginner</option>
                   <option value="Intermediate">Intermediate</option>
                   <option value="Expert">Expert</option>
                 </select>
               </div>
-              <div className="flex justify-end space-x-3 mt-6">
+              <div className="flex justify-end space-x-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowSkillModal(false)}
-                  className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm"
+                  className="px-4 py-2 neo-pill rounded-xl text-xs font-bold text-slate-700"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium"
+                  className="neo-btn-primary px-4 py-2 rounded-xl text-xs font-bold shadow-md"
                 >
                   Add Skill
                 </button>
@@ -518,4 +967,3 @@ export default function ProfilePage() {
     </div>
   );
 }
-

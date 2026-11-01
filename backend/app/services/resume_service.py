@@ -452,6 +452,21 @@ class ResumeService:
             version.parsed_at = utc_now()
             await db.commit()
 
+            # Automatically sync extracted candidate facts (skills, portfolio & social links, contact, experience, education) to CandidateProfile
+            try:
+                from app.services.review_service import review_service
+                from contracts.resume.schemas import ResumeConfirmSyncRequest
+                await review_service.get_or_create_review(db, version.id, user_id)
+                await review_service.sync_approved_to_profile(
+                    db=db,
+                    version_id=version.id,
+                    user_id=user_id,
+                    sync_req=ResumeConfirmSyncRequest(overwrite_conflicts=False)
+                )
+            except Exception as sync_exc:
+                # Non-fatal so parsing result is still returned cleanly
+                print(f"[AutoSync Warning] Resume auto-sync to profile encountered notice: {sync_exc}")
+
             return ResumeExtractionResponse(
                 resume_id=resume_id,
                 version_id=version.id,

@@ -164,48 +164,40 @@ export default function ResumeATSPage() {
     const fetchInitialData = async () => {
       try {
         setError(null);
-        // Load quality report
         setLoadingQuality(true);
-        const qRes = await apiClient.get<QualityReport>(`/api/v1/resumes/${resumeId}/quality`);
-        if (qRes.success && qRes.data) {
-          setQualityReport(qRes.data);
-        }
-
-        // Load past job matches
-        const mRes = await apiClient.get<SavedMatchSummary[]>(`/api/v1/resumes/${resumeId}/job-matches`);
-        if (mRes.success && mRes.data) {
-          setSavedMatches(mRes.data);
-          if (mRes.data.length > 0) {
-            loadSavedMatchDetails(mRes.data[0].id);
-          }
-        }
-
-        // Load all resumes for dynamic switcher
-        try {
-          const rList = await apiClient.get<UserResume[]>("/api/v1/resumes");
-          if (rList.success && Array.isArray(rList.data)) {
-            setUserResumes(rList.data);
-          }
-        } catch {
-          // Non-fatal
-        }
-
-        // Load dynamic suggested jobs for this specific resume
         setLoadingSuggestions(true);
-        try {
-          const sRes = await apiClient.get<SuggestedJob[]>(`/api/v1/resumes/${resumeId}/suggested-jobs?limit=15`);
-          if (sRes.success && Array.isArray(sRes.data)) {
-            setSuggestedJobs(sRes.data);
+
+        // Run all independent endpoints in parallel to eliminate sequential network waterfall
+        const [qResult, mResult, rResult, sResult] = await Promise.allSettled([
+          apiClient.get<QualityReport>(`/api/v1/resumes/${resumeId}/quality`),
+          apiClient.get<SavedMatchSummary[]>(`/api/v1/resumes/${resumeId}/job-matches`),
+          apiClient.get<UserResume[]>("/api/v1/resumes"),
+          apiClient.get<SuggestedJob[]>(`/api/v1/resumes/${resumeId}/suggested-jobs?limit=15`),
+        ]);
+
+        if (qResult.status === "fulfilled" && qResult.value.success && qResult.value.data) {
+          setQualityReport(qResult.value.data);
+        }
+
+        if (mResult.status === "fulfilled" && mResult.value.success && mResult.value.data) {
+          setSavedMatches(mResult.value.data);
+          if (mResult.value.data.length > 0) {
+            loadSavedMatchDetails(mResult.value.data[0].id);
           }
-        } catch {
-          // Non-fatal
-        } finally {
-          setLoadingSuggestions(false);
+        }
+
+        if (rResult.status === "fulfilled" && rResult.value.success && Array.isArray(rResult.value.data)) {
+          setUserResumes(rResult.value.data);
+        }
+
+        if (sResult.status === "fulfilled" && sResult.value.success && Array.isArray(sResult.value.data)) {
+          setSuggestedJobs(sResult.value.data);
         }
       } catch (err: any) {
         setError(err.message || "Failed to load intelligence records.");
       } finally {
         setLoadingQuality(false);
+        setLoadingSuggestions(false);
       }
     };
 
@@ -870,67 +862,67 @@ export default function ResumeATSPage() {
                 </Link>
               </div>
 
-              {/* 4 Category Breakdown Bars (FIXED: FULLY BOUNDED & ACCURATE) */}
+              {/* 4 Category Breakdown Bars (FULLY BOUNDED & ACCURATE) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* 1. Structure & Completeness */}
-                <div className="p-5 rounded-2xl neo-card neo-box-hover border border-white/90 space-y-2">
+                <div className="p-5 rounded-2xl neo-card neo-box-hover border border-white/90 space-y-2 overflow-hidden">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-900">Structure &amp; Completeness (25% Wt)</span>
+                    <span className="font-bold text-slate-900">Structure &amp; Completeness (25%)</span>
                     <span className="font-black text-indigo-700 font-mono">
-                      {Math.round(structureScore * 0.25)} / 25 pts ({Math.round(structureScore)}%)
+                      {Math.round(Math.min(100, Math.max(0, structureScore)) * 0.25)} / 25 pts ({Math.round(structureScore)}%)
                     </span>
                   </div>
-                  <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden">
+                  <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden relative">
                     <div
-                      className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500"
+                      className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500 max-w-full"
                       style={{ width: `${Math.min(100, Math.max(0, structureScore))}%` }}
                     />
                   </div>
                 </div>
 
-                {/* 2. Quantified Impact */}
-                <div className="p-5 rounded-2xl neo-card neo-box-hover border border-white/90 space-y-2">
+                {/* 2. Quantified Impact & Action Verbs */}
+                <div className="p-5 rounded-2xl neo-card neo-box-hover border border-white/90 space-y-2 overflow-hidden">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-900">Quantified Impact &amp; Metrics (25% Wt)</span>
+                    <span className="font-bold text-slate-900">Quantified Impact &amp; Action Verbs (35%)</span>
                     <span className="font-black text-emerald-700 font-mono">
-                      {Math.round(impactScore * 0.25)} / 25 pts ({Math.round(impactScore)}%)
+                      {Math.round(Math.min(100, Math.max(0, impactScore)) * 0.35)} / 35 pts ({Math.round(impactScore)}%)
                     </span>
                   </div>
-                  <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden">
+                  <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden relative">
                     <div
-                      className="bg-emerald-600 h-2.5 rounded-full transition-all duration-500"
+                      className="bg-emerald-600 h-2.5 rounded-full transition-all duration-500 max-w-full"
                       style={{ width: `${Math.min(100, Math.max(0, impactScore))}%` }}
                     />
                   </div>
                 </div>
 
-                {/* 3. Action Verbs & Skills Depth */}
-                <div className="p-5 rounded-2xl neo-card neo-box-hover border border-white/90 space-y-2">
+                {/* 3. Skills Depth & Organization */}
+                <div className="p-5 rounded-2xl neo-card neo-box-hover border border-white/90 space-y-2 overflow-hidden">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-900">Action Verbs &amp; Skills Depth (20% Wt)</span>
+                    <span className="font-bold text-slate-900">Skills Depth &amp; Organization (20%)</span>
                     <span className="font-black text-purple-700 font-mono">
-                      {Math.round(actionScore * 0.20)} / 20 pts ({Math.round(actionScore)}%)
+                      {Math.round(Math.min(100, Math.max(0, actionScore)) * 0.20)} / 20 pts ({Math.round(actionScore)}%)
                     </span>
                   </div>
-                  <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden">
+                  <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden relative">
                     <div
-                      className="bg-purple-600 h-2.5 rounded-full transition-all duration-500"
+                      className="bg-purple-600 h-2.5 rounded-full transition-all duration-500 max-w-full"
                       style={{ width: `${Math.min(100, Math.max(0, actionScore))}%` }}
                     />
                   </div>
                 </div>
 
-                {/* 4. Formatting & Length (FIXED: CLAMPED & ACCURATE) */}
-                <div className="p-5 rounded-2xl neo-card neo-box-hover border border-white/90 space-y-2">
+                {/* 4. Formatting, Clarity & Length */}
+                <div className="p-5 rounded-2xl neo-card neo-box-hover border border-white/90 space-y-2 overflow-hidden">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-900">Formatting, Clarity &amp; Length (30% Wt)</span>
+                    <span className="font-bold text-slate-900">Formatting, Clarity &amp; Length (20%)</span>
                     <span className="font-black text-amber-700 font-mono">
-                      {Math.round(formattingScore * 0.30)} / 30 pts ({Math.round(formattingScore)}%)
+                      {Math.round(Math.min(100, Math.max(0, formattingScore)) * 0.20)} / 20 pts ({Math.round(formattingScore)}%)
                     </span>
                   </div>
-                  <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden">
+                  <div className="w-full neo-inset rounded-full h-2.5 overflow-hidden relative">
                     <div
-                      className="bg-amber-500 h-2.5 rounded-full transition-all duration-500"
+                      className="bg-amber-500 h-2.5 rounded-full transition-all duration-500 max-w-full"
                       style={{ width: `${Math.min(100, Math.max(0, formattingScore))}%` }}
                     />
                   </div>

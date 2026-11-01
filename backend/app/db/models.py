@@ -158,6 +158,11 @@ class CandidateProfile(Base):
     state: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     country: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     timezone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    portfolio_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    linkedin_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    github_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    website_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    social_links_json: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 

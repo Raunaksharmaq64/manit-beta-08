@@ -172,6 +172,13 @@ _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
 _PHONE_RE = re.compile(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b")
 _LINKEDIN_RE = re.compile(r"\b(?:https?://)?(?:www\.)?linkedin\.com/in/([A-Za-z0-9_-]+)\b", re.IGNORECASE)
 _GITHUB_RE = re.compile(r"\b(?:https?://)?(?:www\.)?github\.com/([A-Za-z0-9_-]+)\b", re.IGNORECASE)
+_TWITTER_RE = re.compile(r"\b(?:https?://)?(?:www\.)?(?:twitter\.com|x\.com)/([A-Za-z0-9_]{1,30})\b", re.IGNORECASE)
+_LEETCODE_RE = re.compile(r"\b(?:https?://)?(?:www\.)?leetcode\.com/(?:u/)?([A-Za-z0-9_-]+)\b", re.IGNORECASE)
+_CODEFORCES_RE = re.compile(r"\b(?:https?://)?(?:www\.)?codeforces\.com/profile/([A-Za-z0-9_.-]+)\b", re.IGNORECASE)
+_KAGGLE_RE = re.compile(r"\b(?:https?://)?(?:www\.)?kaggle\.com/([A-Za-z0-9_-]+)\b", re.IGNORECASE)
+_MEDIUM_RE = re.compile(r"\b(?:https?://)?(?:www\.)?medium\.com/@?([A-Za-z0-9_.-]+)\b", re.IGNORECASE)
+_BEHANCE_RE = re.compile(r"\b(?:https?://)?(?:www\.)?behance\.net/([A-Za-z0-9_-]+)\b", re.IGNORECASE)
+_DRIBBBLE_RE = re.compile(r"\b(?:https?://)?(?:www\.)?dribbble\.com/([A-Za-z0-9_-]+)\b", re.IGNORECASE)
 _URL_RE = re.compile(r"\bhttps?://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:/[A-Za-z0-9_#?&/=-]*)?\b", re.IGNORECASE)
 
 _DEGREE_KEYWORDS = [
@@ -353,7 +360,9 @@ class ResumeParserService:
             "country": None,
             "linkedin_url": None,
             "github_url": None,
-            "portfolio_url": None
+            "portfolio_url": None,
+            "website_url": None,
+            "social_links": {}
         }
 
         # Candidate name: First prominent line of document
@@ -502,25 +511,68 @@ class ResumeParserService:
                     review_status=ReviewStatus.PENDING
                 ))
 
-        # Portfolio URL (other URLs)
+        # Twitter / X
+        tw_match = _TWITTER_RE.search(text)
+        if tw_match:
+            tw_user = tw_match.group(1)
+            if tw_user.lower() not in ("intent", "share", "home", "explore"):
+                tw_url = f"https://x.com/{tw_user}"
+                info["social_links"]["twitter"] = tw_url
+
+        # LeetCode
+        lc_match = _LEETCODE_RE.search(text)
+        if lc_match:
+            lc_user = lc_match.group(1)
+            info["social_links"]["leetcode"] = f"https://leetcode.com/u/{lc_user}"
+
+        # Codeforces
+        cf_match = _CODEFORCES_RE.search(text)
+        if cf_match:
+            cf_user = cf_match.group(1)
+            info["social_links"]["codeforces"] = f"https://codeforces.com/profile/{cf_user}"
+
+        # Kaggle
+        kg_match = _KAGGLE_RE.search(text)
+        if kg_match:
+            kg_user = kg_match.group(1)
+            info["social_links"]["kaggle"] = f"https://kaggle.com/{kg_user}"
+
+        # Medium
+        med_match = _MEDIUM_RE.search(text)
+        if med_match:
+            med_user = med_match.group(1)
+            info["social_links"]["medium"] = f"https://medium.com/@{med_user}"
+
+        # Behance / Dribbble
+        beh_match = _BEHANCE_RE.search(text)
+        if beh_match:
+            info["social_links"]["behance"] = f"https://behance.net/{beh_match.group(1)}"
+        dr_match = _DRIBBBLE_RE.search(text)
+        if dr_match:
+            info["social_links"]["dribbble"] = f"https://dribbble.com/{dr_match.group(1)}"
+
+        # Portfolio URL & Personal Website (other URLs)
         all_urls = _URL_RE.findall(text)
         for url in all_urls:
             lower = url.lower()
-            if "linkedin.com" not in lower and "github.com" not in lower:
-                info["portfolio_url"] = url
-                evidence_list.append(EvidenceDTO(
-                    field_id=str(uuid.uuid4()),
-                    field_name="personal_info.portfolio_url",
-                    extracted_value=url,
-                    source_section="HEADER",
-                    excerpt=url,
-                    page_number=page_num,
-                    extraction_method="REGEX",
-                    confidence_score=0.90,
-                    confidence_level=ConfidenceLevel.HIGH,
-                    review_status=ReviewStatus.PENDING
-                ))
-                break
+            if not any(domain in lower for domain in ("linkedin.com", "github.com", "twitter.com", "x.com", "leetcode.com", "codeforces.com", "kaggle.com", "medium.com", "behance.net", "dribbble.com")):
+                if not info["portfolio_url"]:
+                    info["portfolio_url"] = url
+                    info["website_url"] = url
+                    evidence_list.append(EvidenceDTO(
+                        field_id=str(uuid.uuid4()),
+                        field_name="personal_info.portfolio_url",
+                        extracted_value=url,
+                        source_section="HEADER",
+                        excerpt=url,
+                        page_number=page_num,
+                        extraction_method="REGEX",
+                        confidence_score=0.90,
+                        confidence_level=ConfidenceLevel.HIGH,
+                        review_status=ReviewStatus.PENDING
+                    ))
+                elif not info["website_url"]:
+                    info["website_url"] = url
 
         return info
 

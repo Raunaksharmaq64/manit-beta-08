@@ -50,8 +50,8 @@ _PERSONA_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _OPPORTUNITY_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _DASHBOARD_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _COUNTS_CACHE: Dict[str, Tuple[float, Any]] = {}
-_CACHE_TTL_SECONDS = 15.0
-_COUNTS_CACHE_TTL = 60.0
+_CACHE_TTL_SECONDS = 300.0
+_COUNTS_CACHE_TTL = 300.0
 
 _DOMAIN_PATTERNS: Dict[str, Dict[str, Any]] = {
     "MARKETING_GROWTH": {
@@ -1346,24 +1346,29 @@ class UnifiedOpportunityService:
 
         one_week_ago = utc_now() - timedelta(days=7)
 
-        # 1. Global summary counts in a single round-trip
-        global_counts_stmt = select(
-            select(func.count(CanonicalOpportunityRecord.id)).scalar_subquery().label("total_jobs"),
-            select(func.count(FreelanceOpportunityRecord.id)).scalar_subquery().label("total_freelance"),
-            select(func.count(StartupOpportunityRecord.id)).scalar_subquery().label("total_startups"),
-            select(func.count(StartupOpportunityRecord.id)).where(StartupOpportunityRecord.urgency_score >= 8).scalar_subquery().label("high_urgency"),
-            select(func.count(CanonicalOpportunityRecord.id)).where(CanonicalOpportunityRecord.first_seen_at >= one_week_ago).scalar_subquery().label("new_jobs"),
-            select(func.count(FreelanceOpportunityRecord.id)).where(FreelanceOpportunityRecord.discovered_at >= one_week_ago).scalar_subquery().label("new_freelance"),
-            select(func.count(StartupOpportunityRecord.id)).where(StartupOpportunityRecord.first_seen_at >= one_week_ago).scalar_subquery().label("new_startups"),
-        )
-        res = await session.execute(global_counts_stmt)
-        row = res.one()
+        # 1. Global summary counts with smart in-memory pooling (sub-millisecond fast-path)
+        cached_dash_counts = _COUNTS_CACHE.get("dash_global_counts")
+        if not force_fresh and cached_dash_counts and (now - cached_dash_counts[0] < _COUNTS_CACHE_TTL):
+            total_jobs, total_freelance, total_startups, high_urgency, new_this_week = cached_dash_counts[1]
+        else:
+            global_counts_stmt = select(
+                select(func.count(CanonicalOpportunityRecord.id)).scalar_subquery().label("total_jobs"),
+                select(func.count(FreelanceOpportunityRecord.id)).scalar_subquery().label("total_freelance"),
+                select(func.count(StartupOpportunityRecord.id)).scalar_subquery().label("total_startups"),
+                select(func.count(StartupOpportunityRecord.id)).where(StartupOpportunityRecord.urgency_score >= 8).scalar_subquery().label("high_urgency"),
+                select(func.count(CanonicalOpportunityRecord.id)).where(CanonicalOpportunityRecord.first_seen_at >= one_week_ago).scalar_subquery().label("new_jobs"),
+                select(func.count(FreelanceOpportunityRecord.id)).where(FreelanceOpportunityRecord.discovered_at >= one_week_ago).scalar_subquery().label("new_freelance"),
+                select(func.count(StartupOpportunityRecord.id)).where(StartupOpportunityRecord.first_seen_at >= one_week_ago).scalar_subquery().label("new_startups"),
+            )
+            res = await session.execute(global_counts_stmt)
+            row = res.one()
 
-        total_jobs = row.total_jobs or 0
-        total_freelance = row.total_freelance or 0
-        total_startups = row.total_startups or 0
-        high_urgency = row.high_urgency or 0
-        new_this_week = (row.new_jobs or 0) + (row.new_freelance or 0) + (row.new_startups or 0)
+            total_jobs = row.total_jobs or 0
+            total_freelance = row.total_freelance or 0
+            total_startups = row.total_startups or 0
+            high_urgency = row.high_urgency or 0
+            new_this_week = (row.new_jobs or 0) + (row.new_freelance or 0) + (row.new_startups or 0)
+            _COUNTS_CACHE["dash_global_counts"] = (now, (total_jobs, total_freelance, total_startups, high_urgency, new_this_week))
 
         # 2. Total Saved & Active CRM Applications (Single round-trip if user_id present)
         total_saved = 0

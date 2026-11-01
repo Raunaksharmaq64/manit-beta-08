@@ -60,6 +60,9 @@ from app.services.resume_ai_service import resume_ai_service
 
 router = APIRouter(prefix="/resumes", tags=["Resume Intelligence"])
 
+# In-memory high performance dynamic suggestions cache
+_SUGGESTIONS_CACHE: Dict[str, Tuple[float, List[SuggestedJobResponse]]] = {}
+
 
 @router.post("", response_model=ResumeUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_resume(
@@ -272,6 +275,36 @@ async def confirm_and_sync_profile(
         if not target_version_id:
             raise ValueError("Target version not found.")
 
+        return await review_service.sync_approved_to_profile(
+            db=db,
+            version_id=target_version_id,
+            user_id=current_user.id,
+            sync_req=sync_req
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{resume_id}/sync-profile", response_model=ResumeConfirmSyncResponse)
+async def auto_sync_resume_to_profile(
+    resume_id: str,
+    overwrite_conflicts: bool = Query(False),
+    version_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Auto-syncs all extracted details (skills, portfolio/social links, contact, experience, education) from resume into canonical CandidateProfile."""
+    try:
+        if not version_id:
+            summary = await resume_service.get_resume_summary(db, current_user.id, resume_id)
+            target_version_id = summary.active_version_id
+        else:
+            target_version_id = version_id
+
+        if not target_version_id:
+            raise ValueError("Target version not found.")
+
+        sync_req = ResumeConfirmSyncRequest(overwrite_conflicts=overwrite_conflicts)
         return await review_service.sync_approved_to_profile(
             db=db,
             version_id=target_version_id,
@@ -554,6 +587,14 @@ async def get_suggested_jobs_for_resume(
     Completely dynamic: switching or uploading a resume recalculates suggestions specifically for that document.
     """
     try:
+        # Fast-path: Check high-performance memory cache (180s TTL)
+        cache_key = f"{resume_id}_{version_id or ''}_{limit}"
+        now_ts = time.time()
+        if cache_key in _SUGGESTIONS_CACHE:
+            c_time, c_jobs = _SUGGESTIONS_CACHE[cache_key]
+            if now_ts - c_time < 180.0:
+                return c_jobs
+
         # 1. Fetch extraction for this specific resume
         ext = await resume_service.get_extraction(db, current_user.id, resume_id, version_id)
 
@@ -655,6 +696,9 @@ async def get_suggested_jobs_for_resume(
 
         scored_suggestions: List[SuggestedJobResponse] = []
 
+        # Precompute candidate headline and role tokens ONCE outside the loop (O(1) amortized)
+        h_tokens = set(resume_job_matcher.tokenize(f"{candidate_headline} {' '.join(candidate_roles)}".lower()))
+
         for opp in opportunities:
             req_skills = opp.required_skills_json or []
             combined_jd_text = f"{opp.title}\n{opp.description_clean}"
@@ -672,12 +716,11 @@ async def get_suggested_jobs_for_resume(
                 else:
                     missing_skills.append(clean_req)
 
-            # Check if any candidate skills appear in the full JD description
-            jd_tokens = resume_job_matcher.tokenize(combined_jd_text)
-            jd_token_set = set(jd_tokens)
+            # Check if any candidate skills appear in the full JD description (fast word search)
+            jd_lower = combined_jd_text.lower()
             for c_skill in candidate_skills_list:
                 c_clean = c_skill.strip()
-                if c_clean.lower() in jd_token_set and c_clean not in matched_skills:
+                if c_clean.lower() in jd_lower and c_clean not in matched_skills:
                     matched_skills.append(c_clean)
 
             # Portfolio theme overlap
@@ -685,17 +728,16 @@ async def get_suggested_jobs_for_resume(
             if project_bullets and req_skills:
                 try:
                     portfolio_res = resume_job_matcher.align_portfolio_themes(
-                        portfolio_bullets=project_bullets,
-                        jd_themes=req_skills[:5]
+                        portfolio_bullets=project_bullets[:6],
+                        jd_themes=req_skills[:4]
                     )
                     if portfolio_res:
-                        portfolio_alignment_score = min(1.0, len(portfolio_res) / max(1, len(req_skills[:5])))
+                        portfolio_alignment_score = min(1.0, len(portfolio_res) / max(1, len(req_skills[:4])))
                 except Exception:
                     portfolio_alignment_score = 0.0
 
-            # Title & Domain overlap
+            # Title & Domain overlap using precomputed candidate tokens
             t_tokens = set(resume_job_matcher.tokenize(opp.title.lower()))
-            h_tokens = set(resume_job_matcher.tokenize(f"{candidate_headline} {' '.join(candidate_roles)}".lower()))
             title_overlap = len(t_tokens.intersection(h_tokens)) / max(1, len(t_tokens)) if t_tokens else 0.0
 
             # Compute weighted fit score dynamically
@@ -765,7 +807,9 @@ async def get_suggested_jobs_for_resume(
 
         # Sort by match score descending
         scored_suggestions.sort(key=lambda x: x.match_score, reverse=True)
-        return scored_suggestions[:limit]
+        final_suggestions = scored_suggestions[:limit]
+        _SUGGESTIONS_CACHE[cache_key] = (now_ts, final_suggestions)
+        return final_suggestions
 
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
