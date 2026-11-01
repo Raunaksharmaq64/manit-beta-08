@@ -160,34 +160,7 @@ export default function UnifiedDashboardPage() {
         </div>
       </div>
 
-      {/* System Health Banner */}
-      {health && (
-        <div
-          className={`neo-box rounded-2xl p-4 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border ${
-            health.all_systems_operational
-              ? "border-emerald-300/80 text-emerald-950"
-              : "border-amber-300/80 text-amber-950"
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <span
-              className={`h-2.5 w-2.5 rounded-full ${
-                health.all_systems_operational ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
-              }`}
-            />
-            <span className="font-semibold">
-              {health.all_systems_operational
-                ? "All Ingestion Satellites Operational"
-                : "Partial Service Degradation — Returning Available Aggregates"}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-mono">
-            <span>Core: <strong className="text-slate-900 font-extrabold">{health.core_career_engine}</strong></span>
-            <span>LeadHunter: <strong className="text-slate-900 font-extrabold">{health.leadhunter_satellite}</strong></span>
-            <span>Startup Intel: <strong className="text-slate-900 font-extrabold">{health.startup_intelligence_satellite}</strong></span>
-          </div>
-        </div>
-      )}
+
 
       {error && (
         <div className="rounded-xl border border-rose-800/60 bg-rose-950/40 p-4 text-sm text-rose-300">

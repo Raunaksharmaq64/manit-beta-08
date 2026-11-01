@@ -549,15 +549,15 @@ async def get_suggested_jobs_for_resume(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Ranks real active career opportunities against the candidate's extracted & verified
-    skills, project evidence, and headline using evidence-based token overlap.
-    Returns authentic opportunities with verified application links (no mock data).
+    Ranks real active career opportunities dynamically against the candidate's specific
+    resume extractions, explicit skills, inferred skills, headline, roles, and project evidence.
+    Completely dynamic: switching or uploading a resume recalculates suggestions specifically for that document.
     """
     try:
-        # 1. Fetch extraction
+        # 1. Fetch extraction for this specific resume
         ext = await resume_service.get_extraction(db, current_user.id, resume_id, version_id)
 
-        # 2. Collect candidate skills: extraction skills + synced candidate_skills
+        # 2. Collect candidate skills strictly from this resume's extraction
         candidate_skills_set = set()
         for cat, skill_list in (ext.skills or {}).items():
             if isinstance(skill_list, list):
@@ -566,19 +566,55 @@ async def get_suggested_jobs_for_resume(
                         name = s.get("name") or s.get("skill_name")
                         if name:
                             candidate_skills_set.add(str(name).strip())
-                    elif isinstance(s, str):
+                    elif isinstance(s, str) and s.strip():
                         candidate_skills_set.add(s.strip())
 
-        # Also query synced profile skills
-        prof_res = await db.execute(
-            select(CandidateProfile).where(CandidateProfile.user_id == current_user.id)
-        )
-        profile = prof_res.scalar_one_or_none()
-        if profile and profile.skills:
-            for cs in profile.skills:
-                candidate_skills_set.add(cs.skill_name.strip())
+        # Also incorporate explicit and inferred skills from this resume
+        if ext.explicit_skills and isinstance(ext.explicit_skills, dict):
+            for cat, skill_list in ext.explicit_skills.items():
+                if isinstance(skill_list, list):
+                    for s in skill_list:
+                        if isinstance(s, dict):
+                            name = s.get("name") or s.get("skill_name")
+                            if name:
+                                candidate_skills_set.add(str(name).strip())
+                        elif isinstance(s, str) and s.strip():
+                            candidate_skills_set.add(s.strip())
+
+        if ext.inferred_skills and isinstance(ext.inferred_skills, list):
+            for s in ext.inferred_skills:
+                if isinstance(s, dict):
+                    name = s.get("name") or s.get("skill_name")
+                    if name:
+                        candidate_skills_set.add(str(name).strip())
+                elif isinstance(s, str) and s.strip():
+                    candidate_skills_set.add(s.strip())
+
+        # Only if this specific resume has zero extracted skills, fallback to profile skills
+        if not candidate_skills_set:
+            prof_res = await db.execute(
+                select(CandidateProfile).where(CandidateProfile.user_id == current_user.id)
+            )
+            profile = prof_res.scalar_one_or_none()
+            if profile and profile.skills:
+                for cs in profile.skills:
+                    candidate_skills_set.add(cs.skill_name.strip())
 
         candidate_skills_list = sorted(list(candidate_skills_set))
+        normalized_candidate_tokens = {s.lower() for s in candidate_skills_list}
+
+        # Extract headline and roles from this resume
+        candidate_headline = ""
+        if ext.personal_info and isinstance(ext.personal_info, dict):
+            candidate_headline = ext.personal_info.get("headline", "") or ""
+
+        candidate_roles: List[str] = []
+        for exp in (ext.experience or []):
+            if isinstance(exp, dict) and exp.get("role"):
+                candidate_roles.append(str(exp["role"]).strip())
+        for intern in (ext.internships or []):
+            if isinstance(intern, dict) and intern.get("role"):
+                candidate_roles.append(str(intern["role"]).strip())
 
         # Project bullets
         project_bullets: List[str] = []
@@ -618,7 +654,6 @@ async def get_suggested_jobs_for_resume(
             return []
 
         scored_suggestions: List[SuggestedJobResponse] = []
-        normalized_candidate_tokens = {s.lower() for s in candidate_skills_list}
 
         for opp in opportunities:
             req_skills = opp.required_skills_json or []
@@ -658,15 +693,20 @@ async def get_suggested_jobs_for_resume(
                 except Exception:
                     portfolio_alignment_score = 0.0
 
-            # Compute weighted fit score
+            # Title & Domain overlap
+            t_tokens = set(resume_job_matcher.tokenize(opp.title.lower()))
+            h_tokens = set(resume_job_matcher.tokenize(f"{candidate_headline} {' '.join(candidate_roles)}".lower()))
+            title_overlap = len(t_tokens.intersection(h_tokens)) / max(1, len(t_tokens)) if t_tokens else 0.0
+
+            # Compute weighted fit score dynamically
             if req_skills:
                 req_match_ratio = len([s for s in matched_skills if s in req_skills]) / max(1, len(req_skills))
             else:
-                req_match_ratio = 0.6  # Default fallback if skills not structured
+                req_match_ratio = 0.45
 
-            overall_score = round(((req_match_ratio * 0.65) + (portfolio_alignment_score * 0.35)) * 100, 1)
-            # Ensure sensible bounds
-            overall_score = max(35.0, min(98.5, overall_score))
+            raw_fit = (req_match_ratio * 0.45) + (title_overlap * 0.35) + (portfolio_alignment_score * 0.20)
+            overall_score = round(45.0 + (raw_fit * 50.0), 1)
+            overall_score = max(38.0, min(97.5, overall_score))
 
             loc_str = "Remote"
             if opp.city and opp.country:

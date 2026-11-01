@@ -263,7 +263,7 @@ export default function UnifiedOpportunitiesPage() {
       setAvailability(res.service_availability || null);
       setLastRefreshedAt(new Date().toLocaleTimeString());
     } catch (err: any) {
-      if (!isBackground && opportunities.length === 0) setError(err?.message || "Failed to load opportunities.");
+      if (!isBackground) setError(err?.message || "Failed to load opportunities.");
     } finally {
       setLoading(false);
       setIsFiltering(false);
@@ -508,20 +508,6 @@ export default function UnifiedOpportunitiesPage() {
         </div>
       )}
 
-      {/* Partial Outage Notice */}
-      {availability && availability.is_partial_results && (
-        <div className="rounded-xl border border-amber-800/60 bg-amber-950/40 p-4 text-sm text-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-            <span>
-              <strong>Partial Results Active:</strong> One or more ingestion satellites are temporarily degraded. Showing available records from operational systems.
-            </span>
-          </div>
-          <div className="text-xs font-mono">
-            Core: {availability.core} | LeadHunter: {availability.leadhunter} | Startup Intel: {availability.startup_intelligence}
-          </div>
-        </div>
-      )}
 
       {/* Type Switcher Tabs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 border-b border-slate-800 pb-4">
@@ -776,6 +762,9 @@ export default function UnifiedOpportunitiesPage() {
               placeholder="Search roles, skills (e.g. React, WebDev), companies, or problems..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSearchSubmit(e);
+              }}
               className="w-full neo-inset rounded-xl px-3.5 py-2.5 text-sm text-slate-900 font-bold focus:outline-none"
             />
           </div>
@@ -784,8 +773,12 @@ export default function UnifiedOpportunitiesPage() {
           <div className="md:col-span-4">
             <select
               value={selectedDiscipline}
-              onChange={(e) => setSelectedDiscipline(e.target.value)}
-              className="w-full neo-inset rounded-xl px-3.5 py-2.5 text-sm text-slate-900 font-bold focus:outline-none"
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedDiscipline(val);
+                fetchOpportunities(false, false, searchTerm.trim(), activeType, selectedCategory, val, minScore, selectedEmploymentType);
+              }}
+              className="w-full neo-inset rounded-xl px-3.5 py-2.5 text-sm text-slate-900 font-bold focus:outline-none cursor-pointer"
             >
               {DISCIPLINES.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -799,7 +792,7 @@ export default function UnifiedOpportunitiesPage() {
           <div className="md:col-span-3 flex gap-2">
             <button
               type="submit"
-              className="flex-1 px-4 py-2.5 rounded-xl neo-btn-primary text-sm font-bold text-white shadow-md transition-all cursor-pointer"
+              className="flex-1 px-4 py-2.5 rounded-xl neo-btn-primary text-sm font-bold text-white shadow-md transition-all cursor-pointer hover:shadow-lg"
             >
               Search
             </button>
@@ -810,7 +803,8 @@ export default function UnifiedOpportunitiesPage() {
                 setSelectedDiscipline("ALL");
                 setSelectedCategory("All");
                 setMinScore(0);
-                fetchOpportunities(false, false, "", activeType, "All", "ALL", 0);
+                setSelectedEmploymentType("ALL");
+                fetchOpportunities(false, false, "", activeType, "All", "ALL", 0, "ALL");
               }}
               className="px-4 py-2.5 rounded-xl neo-pill text-sm font-bold text-slate-800 hover:text-indigo-600 transition-all cursor-pointer"
             >
@@ -821,33 +815,55 @@ export default function UnifiedOpportunitiesPage() {
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl border border-rose-800/60 bg-rose-950/40 text-sm text-rose-300">
+        <div className="p-4 rounded-xl neo-box border border-red-300 text-sm font-bold text-red-900 shadow-sm">
           {error}
         </div>
       )}
 
       {/* Top Background Revalidation Glow Bar */}
       {(isFiltering || isRefreshing) && (
-        <div className="fixed top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 animate-pulse z-50 shadow-sm" />
+        <div className="fixed top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 animate-pulse z-50 shadow-sm" />
       )}
 
       {/* Pipeline Grid */}
       {loading && opportunities.length === 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-pulse">
           {[...Array(9)].map((_, i) => (
-            <div key={i} className="h-72 rounded-xl bg-slate-900 border border-slate-800" />
+            <div key={i} className="h-72 rounded-2xl neo-card border border-white/90 shadow-sm" />
           ))}
         </div>
       ) : opportunities.length === 0 ? (
-        <div className="text-center py-16 rounded-xl bg-slate-900 border border-slate-800 text-slate-400">
-          <p className="text-base font-medium text-slate-300">No opportunities match the selected criteria.</p>
-          <p className="text-xs text-slate-500 mt-1">Try selecting &apos;All Disciplines&apos; or clicking Refresh Live Opportunities.</p>
-          <button
-            onClick={handleManualRefresh}
-            className="mt-4 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow"
-          >
-            Refresh Live Feed
-          </button>
+        <div className="text-center py-12 px-6 neo-box rounded-2xl border border-white/90 shadow-sm space-y-4">
+          <div className="w-12 h-12 mx-auto rounded-full neo-pill flex items-center justify-center text-indigo-600 font-bold text-xl">
+            🔍
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-900">No opportunities match your search</h3>
+            <p className="text-xs text-slate-700 font-bold mt-1">
+              {searchTerm ? `No results found for "${searchTerm}".` : "Try selecting 'All Disciplines' or resetting search filters."}
+            </p>
+          </div>
+          <div className="pt-2 flex items-center justify-center gap-3">
+            <button
+              onClick={() => {
+                setSearchTerm("");
+                setSelectedDiscipline("ALL");
+                setSelectedCategory("All");
+                setMinScore(0);
+                setSelectedEmploymentType("ALL");
+                fetchOpportunities(false, false, "", activeType, "All", "ALL", 0, "ALL");
+              }}
+              className="px-4 py-2 rounded-xl neo-pill text-xs font-bold text-indigo-900 hover:text-indigo-600 transition-all cursor-pointer"
+            >
+              Reset Filters
+            </button>
+            <button
+              onClick={handleManualRefresh}
+              className="px-4 py-2 rounded-xl neo-btn-primary text-xs font-bold text-white shadow transition-all cursor-pointer"
+            >
+              Scan & Refresh Market
+            </button>
+          </div>
         </div>
       ) : (
         <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-150 ${isFiltering || isRefreshing ? "opacity-80" : "opacity-100"}`}>
@@ -1069,7 +1085,7 @@ export default function UnifiedOpportunitiesPage() {
 
                       {/* Tailored Resume Bullets & Action Plan */}
                       {fit.tailored_resume_bullets && fit.tailored_resume_bullets.length > 0 && (
-                        <div className="pt-2 border-t border-slate-900">
+                        <div className="pt-2 border-t border-slate-200">
                           <button
                             type="button"
                             onClick={() =>
@@ -1077,7 +1093,7 @@ export default function UnifiedOpportunitiesPage() {
                                 expandedBulletId === item.opportunity_id ? null : item.opportunity_id
                               )
                             }
-                            className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 flex items-center justify-between w-full"
+                            className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 flex items-center justify-between w-full transition-colors"
                           >
                             <span className="flex items-center gap-1.5">
                               <span>📝</span>
@@ -1088,20 +1104,20 @@ export default function UnifiedOpportunitiesPage() {
                                 </span>
                               ) : null}
                             </span>
-                            <span className="text-[10px] text-slate-400">
+                            <span className="text-[10px] text-slate-600 font-bold">
                               {expandedBulletId === item.opportunity_id ? "▲ Close" : "▼ Show Recommended Bullets"}
                             </span>
                           </button>
 
                           {expandedBulletId === item.opportunity_id && (
-                            <div className="mt-2 space-y-2 p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs animate-in fade-in duration-150">
-                              <p className="text-[11px] font-medium text-slate-300">
+                            <div className="mt-2 space-y-2 p-3 rounded-xl neo-inset border border-slate-200 text-xs animate-in fade-in duration-150">
+                              <p className="text-[11px] font-bold text-slate-700">
                                 Copy & paste these recommended bullets into your resume to match hiring requirements:
                               </p>
                               {fit.tailored_resume_bullets.map((b, bIdx) => (
-                                <div key={bIdx} className="space-y-1 bg-slate-950 p-2 rounded-lg border border-slate-800/80">
+                                <div key={bIdx} className="space-y-1.5 bg-white/80 p-2.5 rounded-xl border border-slate-200 shadow-sm">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-bold text-amber-300">
+                                    <span className="text-[10px] font-bold text-amber-800">
                                       Target Skill: {b.skill}
                                     </span>
                                     <button
@@ -1111,12 +1127,12 @@ export default function UnifiedOpportunitiesPage() {
                                         setCopiedBulletId(`${item.opportunity_id}-${bIdx}`);
                                         setTimeout(() => setCopiedBulletId(null), 2500);
                                       }}
-                                      className="text-[10px] px-2 py-0.5 rounded bg-indigo-600/40 hover:bg-indigo-600 text-indigo-200 border border-indigo-500/50 transition-colors"
+                                      className="text-[10px] px-2.5 py-1 rounded-lg neo-pill text-indigo-700 hover:text-indigo-900 font-bold border border-indigo-200 transition-all cursor-pointer"
                                     >
                                       {copiedBulletId === `${item.opportunity_id}-${bIdx}` ? "✓ Copied!" : "📋 Copy Bullet"}
                                     </button>
                                   </div>
-                                  <p className="text-[11px] text-slate-300 italic font-mono leading-relaxed">
+                                  <p className="text-[11px] text-slate-700 italic font-medium leading-relaxed">
                                     &quot;{b.sample_bullet}&quot;
                                   </p>
                                 </div>

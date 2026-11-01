@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "../../../../../services/apiClient";
 import { ResumeSubNav } from "../../../../../features/resume/ResumeSubNav";
@@ -59,6 +59,33 @@ interface QualityReport {
   methodology: string;
 }
 
+interface SuggestedJob {
+  job_id: string;
+  title: string;
+  company_name: string;
+  location: string;
+  is_remote: boolean;
+  employment_type: string;
+  salary_display?: string;
+  application_url: string;
+  match_score: number;
+  matched_skills: string[];
+  missing_skills: string[];
+  description_snippet: string;
+  full_description: string;
+  verification_status: string;
+  freshness_state: string;
+  listing_age_days: number;
+  last_verified_display: string;
+}
+
+interface UserResume {
+  id: string;
+  target_role?: string;
+  created_at: string;
+}
+
+
 
 function normalizeMatchResult(raw: any): JobMatchResult {
   if (!raw) return raw;
@@ -112,9 +139,13 @@ function normalizeMatchResult(raw: any): JobMatchResult {
 
 export default function ResumeATSPage() {
   const params = useParams();
+  const router = useRouter();
   const resumeId = params?.resumeId as string;
 
-  const [activeTab, setActiveTab] = useState<"job-match" | "quality">("quality");
+  const [activeTab, setActiveTab] = useState<"suggested-jobs" | "job-match" | "quality">("suggested-jobs");
+  const [suggestedJobs, setSuggestedJobs] = useState<SuggestedJob[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(true);
+  const [userResumes, setUserResumes] = useState<UserResume[]>([]);
 
   // Job Match Form State
   const [jobTitle, setJobTitle] = useState("");
@@ -147,6 +178,29 @@ export default function ResumeATSPage() {
           if (mRes.data.length > 0) {
             loadSavedMatchDetails(mRes.data[0].id);
           }
+        }
+
+        // Load all resumes for dynamic switcher
+        try {
+          const rList = await apiClient.get<UserResume[]>("/api/v1/resumes");
+          if (rList.success && Array.isArray(rList.data)) {
+            setUserResumes(rList.data);
+          }
+        } catch {
+          // Non-fatal
+        }
+
+        // Load dynamic suggested jobs for this specific resume
+        setLoadingSuggestions(true);
+        try {
+          const sRes = await apiClient.get<SuggestedJob[]>(`/api/v1/resumes/${resumeId}/suggested-jobs?limit=15`);
+          if (sRes.success && Array.isArray(sRes.data)) {
+            setSuggestedJobs(sRes.data);
+          }
+        } catch {
+          // Non-fatal
+        } finally {
+          setLoadingSuggestions(false);
         }
       } catch (err: any) {
         setError(err.message || "Failed to load intelligence records.");
@@ -220,6 +274,14 @@ export default function ResumeATSPage() {
     }
   };
 
+
+  const handleTestJobInATS = (job: SuggestedJob) => {
+    setJobTitle(job.title);
+    setJobDescription(job.full_description || job.description_snippet);
+    setActiveTab("job-match");
+    window.scrollTo({ top: 320, behavior: "smooth" });
+  };
+
   const clearForm = () => {
     setJobTitle("");
     setJobDescription("");
@@ -242,23 +304,64 @@ export default function ResumeATSPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8 space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="pb-6 border-b border-slate-300/80">
-        <Link href="/resumes" className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1 mb-1 transition-colors">
-          ← Back to Resumes
-        </Link>
-        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-          Job Matcher &amp; Quality Intelligence
-        </h1>
-        <p className="mt-1 text-sm text-slate-600 font-semibold">
-          Evidence-grounded evaluation. Measures hard vs. preferred skills alignment, experience depth, and resume structural quality.
-        </p>
+      {/* Header with Dynamic Resume Switcher */}
+      <div className="pb-6 border-b border-slate-300/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <Link href="/resumes" className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1 mb-1 transition-colors">
+            ← Back to Resumes
+          </Link>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+            Job Matcher &amp; Quality Intelligence
+          </h1>
+          <p className="mt-1 text-sm text-slate-600 font-semibold">
+            Evidence-grounded evaluation. Dynamically suggests matching jobs and audits ATS structural quality.
+          </p>
+        </div>
+
+        {/* Dynamic Resume Switcher Dropdown */}
+        {userResumes.length > 1 && (
+          <div className="neo-card p-3 rounded-2xl flex items-center gap-2.5 border border-white/90">
+            <span className="text-xs font-black text-slate-800 whitespace-nowrap">Active Resume:</span>
+            <select
+              value={resumeId}
+              onChange={(e) => {
+                const targetId = e.target.value;
+                if (targetId && targetId !== resumeId) {
+                  router.push(`/resumes/${targetId}/ats`);
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl neo-inset border border-slate-300 text-xs font-bold text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            >
+              {userResumes.map((r, rIdx) => (
+                <option key={r.id} value={r.id}>
+                  {r.target_role || `Resume ${rIdx + 1}`} ({r.id.slice(0, 8)})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <ResumeSubNav resumeId={resumeId} />
 
       {/* View Switcher Sub-tabs */}
       <div className="flex flex-wrap gap-2.5">
+        <button
+          type="button"
+          onClick={() => setActiveTab("suggested-jobs")}
+          className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
+            activeTab === "suggested-jobs"
+              ? "neo-inset text-indigo-700 font-black border border-slate-300 shadow-inner scale-[1.02]"
+              : "neo-pill text-slate-800 hover:text-indigo-600 font-bold"
+          }`}
+        >
+          <span>✨ Suggested Jobs For You</span>
+          {suggestedJobs.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-300 font-mono font-bold">
+              {suggestedJobs.length}
+            </span>
+          )}
+        </button>
         <button
           type="button"
           onClick={() => setActiveTab("job-match")}
@@ -286,6 +389,165 @@ export default function ResumeATSPage() {
       {error && (
         <div className="p-4 rounded-2xl neo-inset border border-rose-300 text-rose-950 text-sm font-bold">
           {error}
+        </div>
+      )}
+
+      {/* ================= TAB 0: DYNAMIC SUGGESTED JOBS ================= */}
+      {activeTab === "suggested-jobs" && (
+        <div className="space-y-6">
+          <div className="neo-card p-5 rounded-2xl border border-white/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-slate-900">
+                Dynamically Calibrated Suggestions
+              </h2>
+              <p className="text-xs text-slate-600 font-medium mt-0.5">
+                Calculated strictly from this resume&apos;s confirmed skills, headline, roles, and project evidence against active live openings.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-emerald-800 px-3 py-1 rounded-xl bg-emerald-100 border border-emerald-300 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                Live Dynamic Sync
+              </span>
+            </div>
+          </div>
+
+          {loadingSuggestions ? (
+            <div className="p-12 neo-card rounded-2xl text-center space-y-3">
+              <div className="w-8 h-8 mx-auto border-3 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm font-bold text-slate-700">Evaluating opportunities against your resume facts...</p>
+            </div>
+          ) : suggestedJobs.length === 0 ? (
+            <div className="p-10 neo-card rounded-2xl text-center space-y-2">
+              <p className="text-base font-black text-slate-800">No matching jobs found yet.</p>
+              <p className="text-xs text-slate-600 font-semibold">
+                Try confirming skills in the Review tab or upload a specialized resume version.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {suggestedJobs.map((job) => (
+                <div
+                  key={job.job_id}
+                  className="neo-card p-5 rounded-2xl border border-white/90 flex flex-col justify-between space-y-4 hover:shadow-lg transition-all"
+                >
+                  <div className="space-y-3">
+                    {/* Top Row: Verification + Match Badge */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[11px] font-bold text-slate-700 px-2.5 py-1 rounded-lg neo-inset border border-slate-300/80 flex items-center gap-1.5">
+                        {job.last_verified_display}
+                      </span>
+                      <span
+                        className={`text-xs font-black px-2.5 py-1 rounded-xl border ${
+                          job.match_score >= 70
+                            ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                            : job.match_score >= 50
+                            ? "bg-blue-100 text-blue-900 border-blue-300"
+                            : "bg-amber-100 text-amber-900 border-amber-300"
+                        }`}
+                      >
+                        🎯 {job.match_score}% Match
+                      </span>
+                    </div>
+
+                    {/* Job Title & Company */}
+                    <div>
+                      <h3 className="text-base font-black text-slate-900 leading-snug">
+                        {job.title}
+                      </h3>
+                      <p className="text-xs font-bold text-indigo-700 mt-0.5">
+                        {job.company_name} • <span className="text-slate-600">{job.location}</span>
+                      </p>
+                    </div>
+
+                    {/* Salary & Remote */}
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      {job.salary_display && (
+                        <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-mono font-bold">
+                          💰 {job.salary_display}
+                        </span>
+                      )}
+                      {job.is_remote && (
+                        <span className="px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-900 border border-indigo-300 font-bold">
+                          🌐 Remote
+                        </span>
+                      )}
+                      {job.employment_type && (
+                        <span className="px-2 py-0.5 rounded-lg neo-pill text-slate-700 font-bold">
+                          💼 {job.employment_type}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Description Snippet */}
+                    <p className="text-xs text-slate-600 leading-relaxed font-medium line-clamp-3">
+                      {job.description_snippet}
+                    </p>
+
+                    {/* Matched Skills */}
+                    {job.matched_skills.length > 0 && (
+                      <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                        <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                          Matched Skills in Resume ({job.matched_skills.length}):
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {job.matched_skills.map((s, sIdx) => (
+                            <span
+                              key={sIdx}
+                              className="text-[10px] px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-mono font-bold"
+                            >
+                              ✓ {s}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Missing Skills */}
+                    {job.missing_skills.length > 0 && (
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+                          Skills to Emphasize / Add:
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {job.missing_skills.map((s, sIdx) => (
+                            <span
+                              key={sIdx}
+                              className="text-[10px] px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 font-mono font-bold"
+                            >
+                              + {s}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleTestJobInATS(job)}
+                      className="px-3 py-1.5 rounded-xl neo-pill text-xs font-bold text-indigo-700 hover:text-indigo-900 border border-indigo-200 transition-all cursor-pointer flex items-center gap-1"
+                    >
+                      <span>🚀 1-Click ATS Test</span>
+                    </button>
+                    {job.application_url && (
+                      <a
+                        href={job.application_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                      >
+                        <span>Apply Directly</span>
+                        <span>↗</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -476,22 +476,22 @@ export default function UnifiedSavedOpportunitiesPage() {
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
                         {item.type_specific_payload.is_broken_website && (
-                          <span className="px-1.5 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-800">
+                          <span className="px-1.5 py-0.5 rounded-lg bg-rose-100 text-rose-900 border border-rose-300 font-bold">
                             ⚠️ Broken Site
                           </span>
                         )}
                         {!item.type_specific_payload.website && !item.type_specific_payload.is_broken_website && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-950/70 text-amber-300 border border-amber-800">
+                          <span className="px-1.5 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 font-bold">
                             ⚠️ No Website
                           </span>
                         )}
                         {item.type_specific_payload.email && (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800 font-mono">
+                          <span className="px-1.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-mono font-bold">
                             ✉ {item.type_specific_payload.email}
                           </span>
                         )}
                         {item.type_specific_payload.phone && (
-                          <span className="px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 border border-blue-800 font-mono">
+                          <span className="px-1.5 py-0.5 rounded-lg bg-blue-100 text-blue-900 border border-blue-300 font-mono font-bold">
                             📞 {item.type_specific_payload.phone}
                           </span>
                         )}
@@ -501,20 +501,20 @@ export default function UnifiedSavedOpportunitiesPage() {
 
                   {/* Live Trust Badge */}
                   {item.trust_metrics && (
-                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-1 flex-wrap text-[10px]">
-                      <span className="inline-flex items-center gap-1 font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded-full">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-1 flex-wrap text-[10px]">
+                      <span className="inline-flex items-center gap-1 font-bold text-emerald-900 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
                         {item.trust_metrics.trust_tier_label}
                       </span>
-                      <span className="text-slate-400 font-mono">
+                      <span className="text-slate-700 font-mono font-bold">
                         {item.trust_metrics.ghost_job_risk.urgency_label}
                       </span>
                     </div>
                   )}
 
                   {item.saved_notes && (
-                    <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 text-xs text-amber-300/90 font-sans">
-                      <span className="text-slate-500 font-semibold uppercase text-[10px] block mb-0.5">
+                    <div className="p-2.5 rounded-xl neo-inset border border-amber-300/80 text-xs text-amber-950 font-sans">
+                      <span className="text-slate-700 font-bold uppercase text-[10px] block mb-0.5">
                         Private Note:
                       </span>
                       {item.saved_notes}
@@ -522,12 +522,12 @@ export default function UnifiedSavedOpportunitiesPage() {
                   )}
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={() => handleUnsave(item)}
                       disabled={removingId === item.opportunity_id}
-                      className="text-xs font-semibold px-2.5 py-1 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 transition-colors"
+                      className="text-xs font-bold px-2.5 py-1 rounded-lg neo-pill text-rose-800 hover:text-rose-950 border border-rose-300 transition-colors cursor-pointer"
                     >
                       {removingId === item.opportunity_id ? "Removing..." : "Remove"}
                     </button>

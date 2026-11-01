@@ -1039,7 +1039,7 @@ class UnifiedOpportunityService:
                     FreelanceOpportunityRecord.opportunity_title.ilike(st),
                     FreelanceOpportunityRecord.service_category.ilike(st),
                     FreelanceOpportunityRecord.description.ilike(st),
-                    cast(FreelanceOpportunityRecord.required_skills_json, String).ilike(st),
+                    cast(FreelanceOpportunityRecord.required_skills, String).ilike(st),
                 ])
                 s_clauses.extend([
                     StartupOpportunityRecord.startup_name.ilike(st),
@@ -1154,7 +1154,7 @@ class UnifiedOpportunityService:
                         FreelanceOpportunityRecord.opportunity_title.ilike(st),
                         FreelanceOpportunityRecord.service_category.ilike(st),
                         FreelanceOpportunityRecord.description.ilike(st),
-                        cast(FreelanceOpportunityRecord.required_skills_json, String).ilike(st),
+                        cast(FreelanceOpportunityRecord.required_skills, String).ilike(st),
                     ])
                 if f_clauses:
                     fq = fq.where(or_(*f_clauses))
