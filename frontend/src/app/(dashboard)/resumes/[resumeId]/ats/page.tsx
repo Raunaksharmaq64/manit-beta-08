@@ -129,10 +129,10 @@ function normalizeMatchResult(raw: any): JobMatchResult {
     job_specific_suggestions: Array.isArray(raw.job_specific_suggestions) ? raw.job_specific_suggestions : [],
     evidence_citations: Array.isArray(raw.project_theme_alignments)
       ? raw.project_theme_alignments.map((pt: any) => ({
-          domain: pt.jd_theme || "Project Evidence",
-          resume_section: "Experience/Projects",
-          excerpt: Array.isArray(pt.matched_bullets) ? pt.matched_bullets.join(" • ") : String(pt.matched_bullets || ""),
-        }))
+        domain: pt.jd_theme || "Project Evidence",
+        resume_section: "Experience/Projects",
+        excerpt: Array.isArray(pt.matched_bullets) ? pt.matched_bullets.join(" • ") : String(pt.matched_bullets || ""),
+      }))
       : (Array.isArray(raw.evidence_citations) ? raw.evidence_citations : []),
   };
 }
@@ -341,11 +341,10 @@ export default function ResumeATSPage() {
         <button
           type="button"
           onClick={() => setActiveTab("suggested-jobs")}
-          className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
-            activeTab === "suggested-jobs"
+          className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${activeTab === "suggested-jobs"
               ? "neo-inset text-indigo-700 font-black border border-slate-300 shadow-inner scale-[1.02]"
               : "neo-pill text-slate-800 hover:text-indigo-600 font-bold"
-          }`}
+            }`}
         >
           <span>✨ Suggested Jobs For You</span>
           {suggestedJobs.length > 0 && (
@@ -357,22 +356,20 @@ export default function ResumeATSPage() {
         <button
           type="button"
           onClick={() => setActiveTab("job-match")}
-          className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === "job-match"
+          className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${activeTab === "job-match"
               ? "neo-inset text-indigo-700 font-black border border-slate-300 shadow-inner scale-[1.02]"
               : "neo-pill text-slate-800 hover:text-indigo-600 font-bold"
-          }`}
+            }`}
         >
           🎯 Custom Job Matcher &amp; ATS
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("quality")}
-          className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-            activeTab === "quality"
+          className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${activeTab === "quality"
               ? "neo-inset text-indigo-700 font-black border border-slate-300 shadow-inner scale-[1.02]"
               : "neo-pill text-slate-800 hover:text-indigo-600 font-bold"
-          }`}
+            }`}
         >
           📊 Comprehensive Resume Quality Audit
         </button>
@@ -430,13 +427,12 @@ export default function ResumeATSPage() {
                         {job.last_verified_display}
                       </span>
                       <span
-                        className={`text-xs font-black px-2.5 py-1 rounded-xl border ${
-                          job.match_score >= 70
+                        className={`text-xs font-black px-2.5 py-1 rounded-xl border ${job.match_score >= 70
                             ? "bg-emerald-100 text-emerald-900 border-emerald-300"
                             : job.match_score >= 50
-                            ? "bg-blue-100 text-blue-900 border-blue-300"
-                            : "bg-amber-100 text-amber-900 border-amber-300"
-                        }`}
+                              ? "bg-blue-100 text-blue-900 border-blue-300"
+                              : "bg-amber-100 text-amber-900 border-amber-300"
+                          }`}
                       >
                         🎯 {job.match_score}% Match
                       </span>
@@ -561,11 +557,10 @@ export default function ResumeATSPage() {
                     key={sm.id}
                     type="button"
                     onClick={() => loadSavedMatchDetails(sm.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 ${
-                      matchResult?.match_id === sm.id
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 ${matchResult?.match_id === sm.id
                         ? "neo-inset text-indigo-700 font-black border border-slate-300"
                         : "neo-pill text-slate-800 hover:text-indigo-600"
-                    }`}
+                      }`}
                   >
                     <span>{sm.target_job_title}</span>
                     <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-[10px] font-black text-indigo-900">
@@ -838,13 +833,12 @@ export default function ResumeATSPage() {
                   <div>
                     <div className="flex items-center space-x-2">
                       <h2 className="text-lg font-black text-slate-900">Resume Quality Index</h2>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black border ${
-                        qualityReport.quality_band === "STRONG"
+                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black border ${qualityReport.quality_band === "STRONG"
                           ? "bg-emerald-100 text-emerald-900 border-emerald-300"
                           : qualityReport.quality_band === "MODERATE"
-                          ? "bg-amber-100 text-amber-900 border-amber-300"
-                          : "bg-rose-100 text-rose-900 border-rose-300"
-                      }`}>
+                            ? "bg-amber-100 text-amber-900 border-amber-300"
+                            : "bg-rose-100 text-rose-900 border-rose-300"
+                        }`}>
                         {qualityReport.quality_band}
                       </span>
                     </div>

@@ -32,7 +32,7 @@ else:
 engine_kwargs = {
     "echo": False,
     "connect_args": connect_args,
-    "pool_pre_ping": True,
+    "pool_pre_ping": False,
     "pool_recycle": 600,
     "future": True,
 }
