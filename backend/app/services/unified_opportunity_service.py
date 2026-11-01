@@ -31,6 +31,8 @@ from app.db.models import (
     FreelanceOpportunityRecord,
     JobSourceRecord,
     ResumeExtractionRecord,
+    ResumeRecord,
+    ResumeVersionRecord,
     SavedFreelanceOpportunityRecord,
     SavedJobRecord,
     SavedStartupOpportunityRecord,
@@ -77,7 +79,9 @@ _DOMAIN_PATTERNS: Dict[str, Dict[str, Any]] = {
         "icon": "🎨",
         "patterns": [
             r"\bux\b", r"\bui\b", r"\bui/ux", r"\bproduct design", r"\bproduct manager", r"\bfigma\b",
-            r"\bwireframe", r"\bprototype", r"\buser research", r"\busability", r"\bdesign system", r"\badobe xd"
+            r"\bwireframe", r"\bprototype", r"\buser research", r"\busability", r"\bdesign system", r"\badobe xd",
+            r"\bgraphic design", r"\bvisual design", r"\bdesigner\b", r"\bcreative direction", r"\bbranding\b",
+            r"\billustrat", r"\bphotoshop", r"\bart director", r"\bbrand identity"
         ]
     },
     "FINANCE_ACCOUNTING": {
@@ -274,13 +278,25 @@ class UnifiedOpportunityService:
         return best_domain, _DOMAIN_PATTERNS.get(best_domain, _DOMAIN_PATTERNS["SOFTWARE_ENGINEERING"])
 
     @staticmethod
-    async def resolve_candidate_persona(user_id: Optional[str], session: AsyncSession) -> Dict[str, Any]:
+    async def resolve_candidate_persona(
+        user_id: Optional[str],
+        session: AsyncSession,
+        resume_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Retrieves candidate's active parsed resume extraction & profile to build a dynamic persona.
-        Returns candidate skills, experience titles, detected domain, and display meta.
+        Returns candidate skills, experience titles, detected domain, display meta, and selected resume info.
         """
+        cache_key = f"{user_id or 'anon'}:{resume_id or 'default'}"
+        if cache_key in _PERSONA_CACHE:
+            cached_time, cached_persona = _PERSONA_CACHE[cache_key]
+            if time.time() - cached_time < 60.0:
+                return cached_persona
+
         default_persona = {
             "has_profile": False,
+            "resume_id": None,
+            "resume_title": None,
             "primary_domain": "SOFTWARE_ENGINEERING",
             "domain_display_name": "General Professional",
             "domain_icon": "🌐",
@@ -289,40 +305,79 @@ class UnifiedOpportunityService:
             "target_roles": [],
             "years_experience": 0.0,
         }
-        if not user_id:
+        if not user_id and not resume_id:
             return default_persona
 
-        if user_id in _PERSONA_CACHE:
-            cached_time, cached_persona = _PERSONA_CACHE[user_id]
-            if time.time() - cached_time < 60.0:
-                return cached_persona
-
         try:
-            # 1. Check latest resume extraction
-            ext_stmt = (
-                select(ResumeExtractionRecord)
-                .where(ResumeExtractionRecord.user_id == user_id)
-                .order_by(ResumeExtractionRecord.created_at.desc())
-                .limit(1)
-            )
-            ext_res = await session.execute(ext_stmt)
-            extraction = ext_res.scalar_one_or_none()
+            resume_rec = None
+            extraction = None
+            profile = None
 
-            # 2. Check CandidateProfile
-            prof_stmt = (
-                select(CandidateProfile)
-                .options(selectinload(CandidateProfile.skills), selectinload(CandidateProfile.experience))
-                .where(CandidateProfile.user_id == user_id)
-            )
-            prof_res = await session.execute(prof_stmt)
-            profile = prof_res.scalar_one_or_none()
+            # 1. If explicit resume_id is provided, look up that exact resume
+            if resume_id:
+                res_stmt = select(ResumeRecord).where(ResumeRecord.id == resume_id)
+                res_rec = (await session.execute(res_stmt)).scalar_one_or_none()
+                if res_rec:
+                    resume_rec = res_rec
+                    version_id = res_rec.active_version_id
+                    ext_stmt = select(ResumeExtractionRecord).where(
+                        ResumeExtractionRecord.resume_version_id == version_id
+                    ).order_by(ResumeExtractionRecord.created_at.desc()).limit(1)
+                    extraction = (await session.execute(ext_stmt)).scalar_one_or_none()
+                else:
+                    ext_stmt = select(ResumeExtractionRecord).where(
+                        ResumeExtractionRecord.resume_version_id == resume_id
+                    ).order_by(ResumeExtractionRecord.created_at.desc()).limit(1)
+                    extraction = (await session.execute(ext_stmt)).scalar_one_or_none()
+                    if extraction:
+                        ver_stmt = select(ResumeVersionRecord).where(ResumeVersionRecord.id == extraction.resume_version_id)
+                        ver_rec = (await session.execute(ver_stmt)).scalar_one_or_none()
+                        if ver_rec:
+                            r_lookup = await session.execute(select(ResumeRecord).where(ResumeRecord.id == ver_rec.resume_id))
+                            resume_rec = r_lookup.scalar_one_or_none()
+
+            # 2. If no resume_id or not found, look up candidate's latest ResumeRecord
+            if not extraction and user_id:
+                latest_res_stmt = (
+                    select(ResumeRecord)
+                    .where(ResumeRecord.user_id == user_id)
+                    .order_by(ResumeRecord.created_at.desc())
+                    .limit(1)
+                )
+                latest_res = (await session.execute(latest_res_stmt)).scalar_one_or_none()
+                if latest_res:
+                    resume_rec = latest_res
+                    version_id = latest_res.active_version_id
+                    ext_stmt = select(ResumeExtractionRecord).where(
+                        ResumeExtractionRecord.resume_version_id == version_id
+                    ).order_by(ResumeExtractionRecord.created_at.desc()).limit(1)
+                    extraction = (await session.execute(ext_stmt)).scalar_one_or_none()
+
+                if not extraction:
+                    ext_stmt = (
+                        select(ResumeExtractionRecord)
+                        .where(ResumeExtractionRecord.user_id == user_id)
+                        .order_by(ResumeExtractionRecord.created_at.desc())
+                        .limit(1)
+                    )
+                    extraction = (await session.execute(ext_stmt)).scalar_one_or_none()
+
+            # 3. Only fall back to CandidateProfile if no extraction exists AND no specific resume was targeted
+            if user_id and not resume_id and not extraction:
+                prof_stmt = (
+                    select(CandidateProfile)
+                    .options(selectinload(CandidateProfile.skills), selectinload(CandidateProfile.experience))
+                    .where(CandidateProfile.user_id == user_id)
+                )
+                prof_res = await session.execute(prof_stmt)
+                profile = prof_res.scalar_one_or_none()
 
             skills_set: Set[str] = set()
             skills_display: List[str] = []
             target_roles: List[str] = []
             experience_roles: List[str] = []
-
             domain_info = None
+
             if extraction:
                 # 1. Parse explicit skills from dict or list
                 if isinstance(extraction.skills_json, dict):
@@ -331,29 +386,33 @@ class UnifiedOpportunityService:
                             for s in s_list:
                                 if isinstance(s, dict):
                                     name = s.get("name")
-                                    if name:
+                                    if name and isinstance(name, str) and name.strip():
                                         skills_set.add(name.lower().strip())
-                                        skills_display.append(name.strip())
+                                        if name.strip() not in skills_display:
+                                            skills_display.append(name.strip())
                                 elif isinstance(s, str) and s.strip():
                                     skills_set.add(s.lower().strip())
-                                    skills_display.append(s.strip())
+                                    if s.strip() not in skills_display:
+                                        skills_display.append(s.strip())
                 elif isinstance(extraction.skills_json, list):
                     for s in extraction.skills_json:
                         if isinstance(s, dict):
                             name = s.get("name")
-                            if name:
+                            if name and isinstance(name, str) and name.strip():
                                 skills_set.add(name.lower().strip())
-                                skills_display.append(name.strip())
+                                if name.strip() not in skills_display:
+                                    skills_display.append(name.strip())
                         elif isinstance(s, str) and s.strip():
                             skills_set.add(s.lower().strip())
-                            skills_display.append(s.strip())
+                            if s.strip() not in skills_display:
+                                skills_display.append(s.strip())
 
                 # 2. Inferred skills
                 if isinstance(extraction.inferred_skills_json, list):
                     for s in extraction.inferred_skills_json:
                         if isinstance(s, dict):
                             name = s.get("name")
-                            if name:
+                            if name and isinstance(name, str) and name.strip():
                                 skills_set.add(name.lower().strip())
                                 if name.strip() not in skills_display:
                                     skills_display.append(name.strip())
@@ -374,13 +433,42 @@ class UnifiedOpportunityService:
                         if isinstance(exp, dict) and exp.get("role"):
                             experience_roles.append(exp["role"].strip())
 
-                # 5. Domain metadata
+                # 5. Personal info title or headline
+                if isinstance(extraction.personal_info_json, dict):
+                    title_cand = extraction.personal_info_json.get("headline") or extraction.personal_info_json.get("title")
+                    if title_cand and isinstance(title_cand, str) and title_cand.strip():
+                        target_roles.append(title_cand.strip())
+
+                # 6. Domain metadata
                 if isinstance(extraction.sections_json, dict):
                     domain_info = extraction.sections_json.get("domain_info") or extraction.sections_json.get("_domain_info")
                 if not domain_info and isinstance(extraction.summary_json, dict):
                     domain_info = extraction.summary_json.get("domain_info")
 
-            if profile:
+                # 7. Extract high-signal keywords from resume title & summary
+                res_title_text = (resume_rec.title if resume_rec else "") or ""
+                summary_text = ""
+                if isinstance(extraction.summary_json, dict):
+                    summary_text = f"{extraction.summary_json.get('text', '')} {extraction.summary_json.get('headline', '')}"
+                elif isinstance(extraction.summary_json, str):
+                    summary_text = extraction.summary_json
+
+                common_domain_keywords = [
+                    "Graphic Design", "Visual Design", "UI/UX", "User Interface", "Product Design",
+                    "Creative Direction", "Branding", "Brand Identity", "Motion Design", "3D Design",
+                    "Software Engineering", "Full Stack Development", "Frontend Development", "Backend Development",
+                    "Cloud Architecture", "System Design", "DevOps", "Database Administration",
+                    "Digital Marketing", "Content Strategy", "SEO", "Social Media Marketing",
+                    "Business Development", "Sales Strategy", "Account Management",
+                    "Product Management", "Data Analysis", "Machine Learning", "Financial Modeling"
+                ]
+                raw_search_pool = f"{res_title_text} {summary_text} {' '.join(experience_roles)}".lower()
+                for k in common_domain_keywords:
+                    if k.lower() in raw_search_pool and k.lower() not in skills_set:
+                        skills_set.add(k.lower())
+                        skills_display.append(k)
+
+            elif profile:
                 if profile.skills:
                     for cs in profile.skills:
                         name = cs.skill_name.strip()
@@ -403,7 +491,8 @@ class UnifiedOpportunityService:
                 domain_meta = _DOMAIN_PATTERNS.get(primary_domain, domain_meta)
             else:
                 raw_snippet = (extraction.raw_text[:4000] if extraction and extraction.raw_text else "")
-                text_corpus = f"{' '.join(skills_display)} {' '.join(experience_roles)} {' '.join(target_roles)} {raw_snippet}".lower()
+                res_title_text = (resume_rec.title if resume_rec else "") or ""
+                text_corpus = f"{res_title_text} {' '.join(skills_display)} {' '.join(experience_roles)} {' '.join(target_roles)} {raw_snippet}".lower()
                 best_cnt = 0
                 detected_dom = None
                 for dom, meta in _DOMAIN_PATTERNS.items():
@@ -419,6 +508,8 @@ class UnifiedOpportunityService:
 
             resolved = {
                 "has_profile": has_data,
+                "resume_id": resume_rec.id if resume_rec else (extraction.resume_version_id if extraction else None),
+                "resume_title": resume_rec.title if resume_rec else ("Active Resume" if extraction else None),
                 "primary_domain": primary_domain,
                 "domain_display_name": domain_meta["display_name"],
                 "domain_icon": domain_meta["icon"],
@@ -427,8 +518,7 @@ class UnifiedOpportunityService:
                 "target_roles": target_roles or experience_roles[:3],
                 "years_experience": 3.0 if has_data else 0.0,
             }
-            if user_id:
-                _PERSONA_CACHE[user_id] = (time.time(), resolved)
+            _PERSONA_CACHE[cache_key] = (time.time(), resolved)
             return resolved
         except Exception as e:
             logger.warning(f"Error resolving candidate persona: {e}")
@@ -446,56 +536,94 @@ class UnifiedOpportunityService:
         persona: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Computes dynamic, evidence-backed candidate fit score (0.35 to 0.98) and human-readable explanation.
+        Computes dynamic, evidence-backed candidate fit score (0.20 to 0.98) and human-readable explanation.
         Highlights how candidate fits the requirement or solves the startup bottleneck.
+        When no resume is uploaded/selected, returns honest uncalibrated state (0% fit) with prompt to upload.
         """
         p = persona or {}
         has_profile = p.get("has_profile", False)
+        clean_skills = [s for s in skills if isinstance(s, str) and s.strip()]
+
+        if not has_profile:
+            return {
+                "has_profile": False,
+                "fit_score": 0.0,
+                "fit_percentage": 0,
+                "fit_rating": "NOT_CALCULATED",
+                "how_you_fit": "Upload or select a resume to view AI match score, matching skills, and tailored recommendations.",
+                "matched_skills": [],
+                "missing_skills": clean_skills[:6],
+                "opportunity_domain": opp_domain,
+                "domain_display_name": opp_domain_meta["display_name"],
+                "domain_icon": opp_domain_meta["icon"],
+                "tailored_resume_bullets": [],
+                "why_fit_points": ["Upload your resume to calibrate personalized match scores."],
+                "resume_action_plan": {
+                    "add_skills": clean_skills[:4],
+                    "emphasize_skills": [],
+                    "ats_boost_percentage": 0,
+                },
+            }
+
         cand_domain = p.get("primary_domain", "SOFTWARE_ENGINEERING")
         cand_domain_display = p.get("domain_display_name", "your discipline")
         cand_skills = p.get("skills_set", set())
+        cand_roles = p.get("target_roles", [])
 
-        clean_skills = [s for s in skills if isinstance(s, str) and s.strip()]
         matched_skills: List[str] = []
         missing_skills: List[str] = []
-
         combined_text = f"{title} {desc}".lower()
 
         if clean_skills:
             for req in clean_skills:
                 req_lower = req.lower().strip()
-                if any(cand in req_lower or req_lower in cand for cand in cand_skills):
+                if any(c == req_lower or c in req_lower or req_lower in c for c in cand_skills):
                     matched_skills.append(req.strip())
                 else:
                     missing_skills.append(req.strip())
         else:
             for cs in p.get("skills_display", []):
-                if cs.lower() in combined_text and cs not in matched_skills:
+                if re.search(r"\b" + re.escape(cs.lower()) + r"\b", combined_text) and cs not in matched_skills:
                     matched_skills.append(cs)
 
         same_domain = opp_domain == cand_domain
-        base_score = 0.65 if same_domain else 0.45
 
+        # Role / title overlap
+        title_lower = title.lower()
+        title_overlap = 0.0
+        candidate_role_tokens = set()
+        for r in cand_roles:
+            candidate_role_tokens.update(re.findall(r"\b\w{3,}\b", r.lower()))
+        candidate_role_tokens.difference_update({"and", "the", "for", "with", "senior", "junior", "lead", "staff", "associate"})
+
+        job_title_tokens = set(re.findall(r"\b\w{3,}\b", title_lower))
+        job_title_tokens.difference_update({"and", "the", "for", "with", "senior", "junior", "lead", "staff", "associate"})
+
+        if candidate_role_tokens and job_title_tokens:
+            overlap = len(candidate_role_tokens.intersection(job_title_tokens))
+            title_overlap = min(1.0, overlap / max(1, len(job_title_tokens)))
+
+        # Skill match ratio
         if clean_skills:
-            overlap_ratio = len(matched_skills) / max(1, len(clean_skills))
-            skill_score = overlap_ratio * 0.35
+            skill_match_ratio = len(matched_skills) / max(1, len(clean_skills))
         elif matched_skills:
-            skill_score = min(0.30, len(matched_skills) * 0.10)
+            skill_match_ratio = min(1.0, len(matched_skills) / 3.0)
         else:
-            skill_score = 0.10 if same_domain else 0.05
+            skill_match_ratio = 0.0
 
-        if has_profile:
-            composite_fit = min(0.98, max(0.38, base_score + skill_score))
+        if same_domain:
+            raw_fit = 0.50 + (0.35 * skill_match_ratio) + (0.15 * title_overlap)
         else:
-            composite_fit = 0.85
+            raw_fit = 0.22 + (0.28 * skill_match_ratio) + (0.12 * title_overlap)
 
+        composite_fit = min(0.98, max(0.20, raw_fit))
         fit_percentage = int(round(composite_fit * 100))
 
-        if fit_percentage >= 85:
+        if fit_percentage >= 82:
             fit_rating = "EXCELLENT"
-        elif fit_percentage >= 75:
+        elif fit_percentage >= 70:
             fit_rating = "STRONG"
-        elif fit_percentage >= 60:
+        elif fit_percentage >= 50:
             fit_rating = "MODERATE"
         else:
             fit_rating = "EXPLORATORY"
@@ -966,6 +1094,7 @@ class UnifiedOpportunityService:
         page: int = 1,
         per_page: int = 20,
         user_id: Optional[str] = None,
+        resume_id: Optional[str] = None,
         discipline: Optional[str] = None,
         sort_by: str = "BEST_FIT",
         refresh: bool = False,
@@ -976,7 +1105,7 @@ class UnifiedOpportunityService:
         Dynamically adapts to candidate resume profile, filters by discipline,
         refreshes live market signals, and returns rich fit explanations.
         """
-        cache_key = f"{opportunity_type}:{search or ''}:{category or ''}:{source or ''}:{min_score or 0}:{user_id or ''}:{discipline or ''}:{sort_by}:{employment_type or ''}:{page}:{per_page}"
+        cache_key = f"{opportunity_type}:{search or ''}:{category or ''}:{source or ''}:{min_score or 0}:{user_id or ''}:{resume_id or ''}:{discipline or ''}:{sort_by}:{employment_type or ''}:{page}:{per_page}"
         if not refresh and cache_key in _OPPORTUNITY_CACHE:
             cached_time, cached_val = _OPPORTUNITY_CACHE[cache_key]
             if time.time() - cached_time < _CACHE_TTL_SECONDS:
@@ -992,7 +1121,7 @@ class UnifiedOpportunityService:
                 logger.warning(f"Error during market signal refresh: {e}")
 
         # Resolve candidate persona based on active parsed resume
-        persona = await UnifiedOpportunityService.resolve_candidate_persona(user_id, session)
+        persona = await UnifiedOpportunityService.resolve_candidate_persona(user_id, session, resume_id=resume_id)
 
         jobs_list: List[Dict[str, Any]] = []
         freelance_list: List[Dict[str, Any]] = []
@@ -1266,6 +1395,29 @@ class UnifiedOpportunityService:
                 ),
                 reverse=True,
             )
+        else:
+            # BEST_FIT (Default)
+            cand_dom = persona.get("primary_domain", "")
+            has_prof = persona.get("has_profile", False)
+            if has_prof:
+                combined.sort(
+                    key=lambda x: (
+                        x.get("candidate_fit", {}).get("fit_score", 0.0),
+                        1 if x.get("opportunity_domain") == cand_dom else 0,
+                        len(x.get("candidate_fit", {}).get("matched_skills", [])),
+                        x.get("first_discovered_at") or "",
+                    ),
+                    reverse=True,
+                )
+            else:
+                combined.sort(
+                    key=lambda x: (
+                        1 if x.get("is_new_signal", False) else 0,
+                        x.get("trust_metrics", {}).get("trust_score", 0),
+                        x.get("first_discovered_at") or "",
+                    ),
+                    reverse=True,
+                )
 
         if opportunity_type == "ALL":
             total_count = total_all_num if (not discipline or discipline.upper() == "ALL") else len(combined)
@@ -1305,10 +1457,12 @@ class UnifiedOpportunityService:
             },
             "candidate_persona": {
                 "has_profile": persona.get("has_profile", False),
+                "resume_id": persona.get("resume_id"),
+                "resume_title": persona.get("resume_title"),
                 "primary_domain": persona.get("primary_domain", "SOFTWARE_ENGINEERING"),
                 "domain_display_name": persona.get("domain_display_name", "General Professional"),
                 "domain_icon": persona.get("domain_icon", "🌐"),
-                "skills": persona.get("skills_display", [])[:12],
+                "skills": persona.get("skills_display", [])[:15],
                 "target_roles": persona.get("target_roles", []),
             },
             "service_availability": {

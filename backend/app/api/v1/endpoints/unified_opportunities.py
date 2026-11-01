@@ -87,6 +87,7 @@ async def get_dashboard(
 @router.get("/opportunities/all", summary="Unified multi-source opportunity aggregation feed")
 async def list_unified_opportunities(
     type: str = Query(default="ALL", description="Opportunity type: ALL, JOB, FREELANCE, STARTUP_PAIN_POINT"),
+    resume_id: Optional[str] = Query(default=None, description="Resume ID to dynamically calculate candidate fit against"),
     search: Optional[str] = Query(default=None, description="Search term for title or organization"),
     category: Optional[str] = Query(default=None, description="Category filter"),
     discipline: Optional[str] = Query(default=None, description="Discipline: MARKETING_GROWTH, SALES_BD, PRODUCT_DESIGN, FINANCE_ACCOUNTING, OPERATIONS_LOGISTICS, HR_TALENT, CUSTOMER_SUCCESS, DATA_ANALYTICS, HEALTHCARE_MEDICAL, LEGAL_COMPLIANCE, SOFTWARE_ENGINEERING"),
@@ -109,6 +110,7 @@ async def list_unified_opportunities(
     result = await UnifiedOpportunityService.aggregate_opportunities(
         session=db,
         opportunity_type=type.upper(),
+        resume_id=resume_id,
         search=search,
         category=category,
         source=source,

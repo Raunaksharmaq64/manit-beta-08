@@ -467,6 +467,13 @@ class ResumeService:
                 # Non-fatal so parsing result is still returned cleanly
                 print(f"[AutoSync Warning] Resume auto-sync to profile encountered notice: {sync_exc}")
 
+            try:
+                from app.services.unified_opportunity_service import UnifiedOpportunityService, _PERSONA_CACHE
+                UnifiedOpportunityService.clear_caches()
+                _PERSONA_CACHE.clear()
+            except Exception:
+                pass
+
             return ResumeExtractionResponse(
                 resume_id=resume_id,
                 version_id=version.id,

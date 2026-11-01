@@ -69,8 +69,18 @@ interface CountsByType {
   };
 }
 
+interface UserResume {
+  id: string;
+  title: string;
+  created_at: string;
+  active_version_id?: string;
+  status?: string;
+}
+
 interface CandidatePersona {
   has_profile: boolean;
+  resume_id?: string | null;
+  resume_title?: string | null;
   primary_domain: string;
   domain_display_name: string;
   domain_icon: string;
@@ -162,13 +172,64 @@ export default function UnifiedOpportunitiesPage() {
   const [expandedBulletId, setExpandedBulletId] = useState<string | null>(null);
   const [expandedSkillsCards, setExpandedSkillsCards] = useState<Record<string, boolean>>({});
 
-  const toggleSkillsExpanded = (id: string) => {
+  // Dynamic Matching Resume Persona State
+  const [userResumes, setUserResumes] = useState<UserResume[]>([]);
+  const [selectedResumeId, setSelectedResumeId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const fromUrl = urlParams.get("resume_id");
+      if (fromUrl) return fromUrl;
+      return localStorage.getItem("rightfit_matching_resume_id") || null;
+    }
+    return null;
+  });
+
+  const toggleSkillsExpanded = (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     setExpandedSkillsCards((prev) => ({
       ...prev,
       [id]: !prev[id],
     }));
   };
   const [copiedBulletId, setCopiedBulletId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadUserResumes = async () => {
+      try {
+        const res = await apiClient.get<UserResume[]>("/resumes");
+        if (isMounted && res.success && Array.isArray(res.data) && res.data.length > 0) {
+          setUserResumes(res.data);
+          const currentValid = res.data.some((r) => r.id === selectedResumeId);
+          if (!selectedResumeId || !currentValid) {
+            const firstId = res.data[0].id;
+            setSelectedResumeId(firstId);
+            if (typeof window !== "undefined") {
+              localStorage.setItem("rightfit_matching_resume_id", firstId);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch resumes for opportunity matching:", e);
+      }
+    };
+    loadUserResumes();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSelectResume = (newResumeId: string) => {
+    setSelectedResumeId(newResumeId);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("rightfit_matching_resume_id", newResumeId);
+    }
+    fastCache.clear();
+    fetchOpportunities(false, false, undefined, undefined, undefined, undefined, undefined, undefined, newResumeId);
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -195,7 +256,8 @@ export default function UnifiedOpportunitiesPage() {
     overrideCategory?: string,
     overrideDiscipline?: string,
     overrideMinScore?: number,
-    overrideEmploymentType?: string
+    overrideEmploymentType?: string,
+    overrideResumeId?: string | null
   ) => {
     const effType = overrideType !== undefined ? overrideType : activeType;
     const effDiscipline = overrideDiscipline !== undefined ? overrideDiscipline : selectedDiscipline;
@@ -203,8 +265,9 @@ export default function UnifiedOpportunitiesPage() {
     const effMinScore = overrideMinScore !== undefined ? overrideMinScore : minScore;
     const effSearch = overrideSearch !== undefined ? overrideSearch : searchTerm;
     const effEmploymentType = overrideEmploymentType !== undefined ? overrideEmploymentType : selectedEmploymentType;
+    const effResumeId = overrideResumeId !== undefined ? overrideResumeId : selectedResumeId;
 
-    const cacheKey = `opps_${effType}_${effDiscipline}_${sortBy}_${effCategory}_${effMinScore}_${effEmploymentType}_${effSearch.trim()}`;
+    const cacheKey = `opps_${effType}_${effDiscipline}_${sortBy}_${effCategory}_${effMinScore}_${effEmploymentType}_${effSearch.trim()}_${effResumeId || "none"}`;
 
     // Fast-path: Check fastCache for instantaneous zero-latency tab/filter swap
     if (!triggerRefresh && !isBackground) {
@@ -228,6 +291,7 @@ export default function UnifiedOpportunitiesPage() {
       if (effType !== "ALL") params.append("type", effType);
       if (effDiscipline !== "ALL") params.append("discipline", effDiscipline);
       if (sortBy) params.append("sort_by", sortBy);
+      if (effResumeId) params.append("resume_id", effResumeId);
       if (triggerRefresh) params.append("refresh", "true");
       if (effSearch.trim()) params.append("search", effSearch.trim());
       if (effCategory !== "All") params.append("category", effCategory);
@@ -278,7 +342,7 @@ export default function UnifiedOpportunitiesPage() {
 
   useEffect(() => {
     fetchOpportunities(false);
-  }, [activeType, selectedDiscipline, sortBy, selectedCategory, minScore, selectedEmploymentType]);
+  }, [activeType, selectedDiscipline, sortBy, selectedCategory, minScore, selectedEmploymentType, selectedResumeId]);
 
   // Background Auto-Refresh Poller (Selective & Throttled to 45s, runs only when tab is visible)
   useEffect(() => {
@@ -458,6 +522,82 @@ export default function UnifiedOpportunitiesPage() {
           </button>
         </div>
       )}
+
+      {/* Target Resume Persona Switcher */}
+      <div className="neo-box flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 via-white to-sky-50/40 shadow-sm">
+        <div className="flex items-center gap-3.5 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="w-9 h-9 rounded-xl neo-pill flex items-center justify-center text-lg text-indigo-600 shadow-sm">
+              🎯
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  Target Resume Profile:
+                </span>
+                {userResumes.length > 0 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
+                    Active Match
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 font-medium">
+                Live opportunities, ATS match % and skill suggestions calibrate directly to this resume
+              </p>
+            </div>
+          </div>
+
+          {userResumes.length > 0 ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={selectedResumeId || ""}
+                onChange={(e) => handleSelectResume(e.target.value)}
+                className="px-3.5 py-2 rounded-xl neo-pill border border-indigo-200 text-xs font-black text-indigo-950 bg-white/95 shadow-sm cursor-pointer hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+              >
+                {userResumes.map((r) => (
+                  <option key={r.id} value={r.id} className="text-slate-800 font-bold">
+                    📄 {r.title || "Untitled Resume"}
+                  </option>
+                ))}
+              </select>
+
+              {candidatePersona && candidatePersona.has_profile && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-indigo-100/80 text-indigo-900 border border-indigo-200 shadow-sm flex items-center gap-1">
+                    <span>{candidatePersona.domain_icon || "🌐"}</span>
+                    <span>{candidatePersona.domain_display_name}</span>
+                  </span>
+                  {candidatePersona.skills && candidatePersona.skills.length > 0 && (
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-200">
+                      ✓ {candidatePersona.skills.length} skills in profile
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-800 bg-amber-50 px-3.5 py-1.5 rounded-xl border border-amber-200">
+              <span>⚠️ No resume uploaded yet — match percentages uncalibrated.</span>
+              <Link
+                href="/resumes"
+                className="text-xs font-black text-indigo-600 underline hover:text-indigo-800 ml-1"
+              >
+                Upload Resume &rarr;
+              </Link>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Link
+            href="/resumes"
+            className="px-3.5 py-2 rounded-xl neo-pill text-xs font-bold text-slate-700 hover:text-indigo-600 border border-slate-200 transition-all flex items-center gap-1.5"
+          >
+            <span>📁</span>
+            <span>All Resumes ({userResumes.length})</span>
+          </Link>
+        </div>
+      </div>
 
       {/* Live Auto-Refresh & Controls Bar */}
       <div className="neo-box flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl text-xs font-bold text-slate-800 border border-white/90">
@@ -998,7 +1138,8 @@ export default function UnifiedOpportunitiesPage() {
 
                       {/* Matched & Missing Skills Summary */}
                       {(() => {
-                        const isSkillsExpanded = !!expandedSkillsCards[item.opportunity_id];
+                        const cardKey = `${item.opportunity_type}-${item.opportunity_id}`;
+                        const isSkillsExpanded = !!expandedSkillsCards[cardKey];
                         const visibleMatched = isSkillsExpanded ? matchedSkills : matchedSkills.slice(0, 4);
                         const visibleMissing = isSkillsExpanded ? missingSkills : missingSkills.slice(0, 3);
                         return (
@@ -1018,7 +1159,7 @@ export default function UnifiedOpportunitiesPage() {
                                   {matchedSkills.length > 4 && (
                                     <button
                                       type="button"
-                                      onClick={() => toggleSkillsExpanded(item.opportunity_id)}
+                                      onClick={(e) => toggleSkillsExpanded(cardKey, e)}
                                       className="text-[10px] px-2 py-0.5 rounded-lg neo-pill text-emerald-800 hover:text-emerald-950 font-mono font-bold cursor-pointer transition-all"
                                       title={isSkillsExpanded ? "Collapse matched skills" : "Show all matched skills"}
                                     >
@@ -1043,7 +1184,7 @@ export default function UnifiedOpportunitiesPage() {
                                   {missingSkills.length > 3 && (
                                     <button
                                       type="button"
-                                      onClick={() => toggleSkillsExpanded(item.opportunity_id)}
+                                      onClick={(e) => toggleSkillsExpanded(cardKey, e)}
                                       className="text-[10px] px-2 py-0.5 rounded-lg neo-pill text-amber-800 hover:text-amber-950 font-mono font-bold cursor-pointer transition-all"
                                       title={isSkillsExpanded ? "Collapse missing skills" : "Show all missing skills"}
                                     >
@@ -1063,20 +1204,39 @@ export default function UnifiedOpportunitiesPage() {
                   {fit && (
                     <div className="p-3.5 rounded-xl neo-inset space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                          <span
-                            className={`w-2 h-2 rounded-full ${fit.fit_percentage >= 80
-                              ? "bg-emerald-400"
-                              : fit.fit_percentage >= 65
-                                ? "bg-blue-400"
-                                : "bg-amber-400"
-                              }`}
-                          />
-                          Fit: {fit.fit_percentage}% ({fit.fit_rating})
-                        </span>
-                        <span className="text-[10px] text-indigo-700 font-mono font-bold">
-                          Verified Synergy
-                        </span>
+                        {fit.fit_percentage > 0 ? (
+                          <>
+                            <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                              <span
+                                className={`w-2 h-2 rounded-full ${fit.fit_percentage >= 80
+                                  ? "bg-emerald-400"
+                                  : fit.fit_percentage >= 65
+                                    ? "bg-blue-400"
+                                    : fit.fit_percentage >= 45
+                                      ? "bg-amber-400"
+                                      : "bg-slate-400"
+                                  }`}
+                              />
+                              Fit: {fit.fit_percentage}% ({fit.fit_rating})
+                            </span>
+                            <span className="text-[10px] text-indigo-700 font-mono font-bold">
+                              Verified Synergy
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-slate-400" />
+                              Fit: Uncalibrated
+                            </span>
+                            <Link
+                              href="/resumes"
+                              className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline"
+                            >
+                              Upload Resume &rarr;
+                            </Link>
+                          </>
+                        )}
                       </div>
 
                       <p className="text-xs text-slate-700 leading-relaxed font-medium">
